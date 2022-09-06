@@ -13,7 +13,7 @@ BaselineOfSubProcess >> baseline: spec [
 		do: [ 
 			spec baseline: 'Glib' with: [ 
 				spec 
-					repository: 'github://pharo-spec/gtk-bindings/src';
+					repository: 'github://demarey/gtk-bindings/src';
 					loads: 'GIO-standalone' ].
 		
 			spec
