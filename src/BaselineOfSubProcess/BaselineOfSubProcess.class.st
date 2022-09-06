@@ -11,12 +11,14 @@ BaselineOfSubProcess >> baseline: spec [
 	spec
 		for: #common
 		do: [ 
-			spec baseline: 'GlibStandaloneEngine' with: [ 
-				spec repository: 'github://pharo-spec/gtk-bindings/src' ].
+			spec baseline: 'Glib' with: [ 
+				spec 
+					repository: 'github://pharo-spec/gtk-bindings/src';
+					loads: 'GIO-standalone' ].
 		
 			spec
 				package: 'SubProcess';
-				package: 'SubProcess-Tests' with: [ spec requires: #('SubProcess' 'GlibStandaloneEngine') ];
+				package: 'SubProcess-Tests' with: [ spec requires: #('SubProcess' 'Glib') ];
 				group: 'default' with: #('SubProcess-Tests').
 		].
 ]
