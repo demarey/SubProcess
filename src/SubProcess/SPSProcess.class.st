@@ -14,7 +14,9 @@ Class {
 		'stdOut',
 		'stdErr',
 		'isSuccess',
-		'error'
+		'error',
+		'exitCode',
+		'workingDirectory'
 	],
 	#pools : [
 		'GSpawnFlags'
@@ -25,7 +27,7 @@ Class {
 { #category : #'api - accessing' }
 SPSProcess >> arguments [
 
-	^ arguments
+	^ arguments ifNil: #()
 ]
 
 { #category : #'api - configuring' }
@@ -52,10 +54,40 @@ SPSProcess >> error [
 	^ error
 ]
 
+{ #category : #private }
+SPSProcess >> errorMessage: message errorCode: errorCode domainString: domainString [ 
+	
+	error := SPSError
+		message: message
+		code: errorCode 
+		domainString: domainString
+		
+]
+
+{ #category : #'api - accessing' }
+SPSProcess >> exitCode [
+
+	^ exitCode
+]
+
+{ #category : #private }
+SPSProcess >> exitCode: anInteger [
+
+	exitCode := anInteger
+	
+	
+]
+
 { #category : #'api - testing' }
 SPSProcess >> isComplete [
 	
 	^ isComplete
+]
+
+{ #category : #'api - testing' }
+SPSProcess >> isExitCodeSuccess [
+	
+	^ self exitCode = 0
 ]
 
 { #category : #'api - testing' }
@@ -68,7 +100,7 @@ SPSProcess >> isSuccess [
 SPSProcess >> run [
 
 	self runSync.
-	self isSuccess ifFalse: [ SPSError signal: self error message ]
+	self isSuccess ifFalse: [ self error signal ]
 ]
 
 { #category : #private }
@@ -77,6 +109,7 @@ SPSProcess >> runSync [
 	GIOSyncProcess
 		spawn: self command
 		arguments: self arguments
+		workingDirectory: workingDirectory
 		flags: G_SPAWN_DEFAULT
 		processInfo: self.
 		
@@ -117,4 +150,10 @@ SPSProcess >> success: aBoolean [
 SPSProcess >> terminate [
 	
 	self flag: 'TODO'
+]
+
+{ #category : #'api - configuring' }
+SPSProcess >> workingDirectory: aFileReference [ 
+	
+	workingDirectory := aFileReference.
 ]
