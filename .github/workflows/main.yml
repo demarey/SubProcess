@@ -32,6 +32,10 @@ jobs:
         run: sudo apt install --yes libglib2.0-0
         shell: bash
         if: runner.os == 'Linux'
+      - name: Setup OS X
+        run: sudo brew install gtk+3
+        shell: bash
+        if: runner.os == 'macOS'
       - uses: actions/checkout@v3
       - uses: hpi-swa/setup-smalltalkCI@v1
         with:
