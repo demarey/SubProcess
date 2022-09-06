@@ -6,9 +6,9 @@ name: CI
 on:
   # Triggers the workflow on push or pull request events but only for the "master" branch
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -28,6 +28,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.smalltalk }}, ${{ matrix.smalltalk_config }} on ${{ matrix.os }} 
     steps:
+      - name: Setup Linux
+        run: sudo apt install --yes libglib2.0-0
+        shell: bash
+        if: runner.os == 'Linux'
+      - name: Setup OS X
+        run: brew install gtk+3
+        shell: bash
+        if: runner.os == 'macOS'
       - uses: actions/checkout@v3
       - uses: hpi-swa/setup-smalltalkCI@v1
         with:
