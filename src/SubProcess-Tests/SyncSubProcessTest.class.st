@@ -7,6 +7,14 @@ Class {
 	#category : #'SubProcess-Tests'
 }
 
+{ #category : #configuring }
+SyncSubProcessTest >> listDirectoryCommand [
+
+	^ OSPlatform current isWindows 
+		ifTrue: [ 'dir' ]
+		ifFalse: [ '/bin/ls' ]
+]
+
 { #category : #running }
 SyncSubProcessTest >> tearDown [
 
@@ -25,7 +33,9 @@ SyncSubProcessTest >> testRunningANonExistingCommand [
 		should: [ process run ]
 		raise: SPSError
 		withExceptionDo: [ :error |
-			self assert: (error messageText includesSubstring: 'No such file or directory')
+			self 
+				assert: (error messageText includesSubstring: 'No such file or directory')
+				description: 'Expecting "No Such file ..." but got ', error messageText.
 		].
 	
 	self assert: process isComplete.
@@ -39,17 +49,15 @@ SyncSubProcessTest >> testRunningANonExistingCommand [
 SyncSubProcessTest >> testRunningBasicCommand [
 	
 	process := SPSProcess new
-		command: '/bin/ls';
-		arguments: #('-z').
+		command: self listDirectoryCommand.
 	
 	process run.
 	
 	self assert: process isComplete.
 	self assert: process isSuccess.
-	self deny: process isExitCodeSuccess.
-	self assert: process exitCode equals: 1.
-	self deny: process stdErr isEmpty.
-	self assert: process stdOut isEmpty.
+	self assert: process isExitCodeSuccess.
+	self assert: process stdErr isEmpty.
+	self deny: process stdOut isEmpty.
 
 ]
 
@@ -60,7 +68,7 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	dir := Smalltalk imagePath asFileReference parent / 'pharo-local'.
 	process := SPSProcess new
 		workingDirectory: dir;
-		command: '/bin/ls'.
+		command: self listDirectoryCommand.
 	
 	process run.
 	
