@@ -22,8 +22,6 @@ jobs:
       matrix:
         smalltalk:
           - Pharo64-10
-          # Waiting a 32-bit version of Pharo 90 before re-enabling this version
-          #  - Pharo32-9.0
         smalltalk_config: [ .smalltalk.ston ]
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
@@ -43,8 +41,10 @@ jobs:
           smalltalk-image: ${{ matrix.smalltalk }}
       - name: Test on Windows
         run: |
-          curl https://files.pharo.org/vm/pharo-spur64-headless/win/latest-win64-GTK.zip --output vm.zip
+          curl https://files.pharo.org/vm/pharo-spur64-headless/Windows-x86_64/stable.zip --output vm.zip
           unzip -q vm.zip -d extracted
+          curl http://files.pharo.org/vm/extra/gtk-glib-win64.zip  --output gtk-glib.zip
+          unzip -q gtk-glib.zip -d extracted
           smalltalkci --vm extracted/Pharo.exe -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }}
         if: runner.os == 'Windows'
         shell: bash
