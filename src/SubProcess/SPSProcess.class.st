@@ -16,7 +16,8 @@ Class {
 		'isSuccess',
 		'error',
 		'exitCode',
-		'workingDirectory'
+		'workingDirectory',
+		'encoding'
 	],
 	#pools : [
 		'GSpawnFlags'
@@ -48,6 +49,14 @@ SPSProcess >> command: aString [
 	command := aString
 ]
 
+{ #category : #'api - configuring' }
+SPSProcess >> encoding: anEncoding [
+	"anEncoding will be used to decode the received Strings, using a specified encoding.
+	anEncoding is either a ZnCharacterEncoder instance or an identifier for one."
+
+	encoding := anEncoding
+]
+
 { #category : #'api - accessing' }
 SPSProcess >> error [
 
@@ -58,7 +67,7 @@ SPSProcess >> error [
 SPSProcess >> errorMessage: message errorCode: errorCode domainString: domainString [ 
 	
 	error := SPSError
-		message: message
+		message: (message decodeWith: encoding)
 		code: errorCode 
 		domainString: domainString
 		
@@ -76,6 +85,17 @@ SPSProcess >> exitCode: anInteger [
 	exitCode := anInteger
 	
 	
+]
+
+{ #category : #initialization }
+SPSProcess >> initialize [
+
+	super initialize.
+	"This is just a default encoding. Especially on windows, you could need to set the correct encoding"
+	encoding := OSPlatform current isWindows
+		ifTrue: [ 'cp-850' ]
+		ifFalse: [ 'utf8' ].
+	 
 ]
 
 { #category : #'api - testing' }
@@ -123,9 +143,9 @@ SPSProcess >> stdErr [
 ]
 
 { #category : #private }
-SPSProcess >> stdErr: aString [ 
+SPSProcess >> stdErr: aByteArray [ 
 	
-	stdErr := aString
+	stdErr := aByteArray ifNotNil: [ aByteArray decodeWith: encoding ].
 ]
 
 { #category : #'api - accessing' }
@@ -135,9 +155,9 @@ SPSProcess >> stdOut [
 ]
 
 { #category : #private }
-SPSProcess >> stdOut: aString [ 
+SPSProcess >> stdOut: aByteArray [
 	
-	stdOut := aString
+	stdOut := aByteArray ifNotNil: [ aByteArray decodeWith: encoding ].
 ]
 
 { #category : #private }

@@ -8,11 +8,9 @@ Class {
 }
 
 { #category : #configuring }
-SyncSubProcessTest >> listDirectoryCommand [
+SyncSubProcessTest >> isRunningOnWindows [
 
-	^ OSPlatform current isWindows 
-		ifTrue: [ 'dir' ]
-		ifFalse: [ '/bin/ls' ]
+	^ OSPlatform current isWindows
 ]
 
 { #category : #running }
@@ -48,8 +46,9 @@ SyncSubProcessTest >> testRunningANonExistingCommand [
 { #category : #tests }
 SyncSubProcessTest >> testRunningBasicCommand [
 	
+	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
 	process := SPSProcess new
-		command: self listDirectoryCommand.
+		command: '/bin/ls'.
 	
 	process run.
 	
@@ -62,13 +61,37 @@ SyncSubProcessTest >> testRunningBasicCommand [
 ]
 
 { #category : #tests }
+SyncSubProcessTest >> testRunningBasicCommandOnWindows [
+	
+	| output |
+	
+	self isRunningOnWindows ifFalse: [ self skip: 'skipping windows test'].
+	process := SPSProcess new
+		command: 'C:\Windows\System32\processinfo.exe'.
+	
+	process run.
+	
+	self assert: process isComplete.
+	self assert: process isSuccess.
+	self assert: process isExitCodeSuccess.
+	self assert: process stdErr isEmpty.
+	self deny: process stdOut isEmpty.
+	output := process stdOut decodeWith: 'cp-850'.
+	self assert: (output includesSubstring: 'Microsoft Windows').
+]
+
+{ #category : #tests }
 SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	
 	| dir |
 	dir := Smalltalk imagePath asFileReference parent / 'pharo-local'.
 	process := SPSProcess new
 		workingDirectory: dir;
-		command: self listDirectoryCommand.
+		command: '/bin/ls'.
+	OSPlatform current isWindows 
+		ifTrue: [ process
+						command: self windowsShellCommand;
+						arguments: #('dir') ]	.
 	
 	process run.
 	
@@ -79,4 +102,10 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	self assert: process stdErr isEmpty.
 	self assert: (process stdOut includesSubstring: 'ombu-sessions').
 
+]
+
+{ #category : #accessing }
+SyncSubProcessTest >> windowsShellCommand [
+
+	^ 'C:\Windows\System32\cmd.exe'
 ]
