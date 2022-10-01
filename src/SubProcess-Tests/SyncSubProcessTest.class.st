@@ -76,7 +76,7 @@ SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 	self assert: process isExitCodeSuccess.
 	self assert: process stdErr isEmpty.
 	self deny: process stdOut isEmpty.
-	output := process stdOut decodeWith: 'cp-850'.
+	output := process stdOut.
 	self assert: (output includesSubstring: 'Microsoft Windows').
 ]
 
