@@ -67,7 +67,7 @@ SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 	
 	self isRunningOnWindows ifFalse: [ self skip: 'skipping windows test'].
 	process := SPSProcess new
-		command: 'C:\Windows\System32\processinfo.exe'.
+		command: 'C:\Windows\System32\systeminfo.exe'.
 	
 	process run.
 	
