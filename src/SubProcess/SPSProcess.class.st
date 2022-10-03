@@ -26,15 +26,19 @@ Class {
 }
 
 { #category : #'api - configuring' }
-SPSProcess >> addArgument: aCollection [ 
+SPSProcess >> addArgument: aString [ 
 	
-	arguments add: aCollection
+	arguments 
+		ifNil: [ arguments := OrderedCollection with: aString ]
+		ifNotNil: [ arguments add: aString ]
 ]
 
 { #category : #'api - configuring' }
 SPSProcess >> addArguments: aCollection [ 
 	
-	arguments addAll: aCollection
+	arguments 
+		ifNil: [ arguments := OrderedCollection withAll: aCollection ]
+		ifNotNil: [ arguments addAll: aCollection ]
 ]
 
 { #category : #'api - accessing' }
