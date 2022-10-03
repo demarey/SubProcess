@@ -192,7 +192,9 @@ SPSProcess >> terminate [
 SPSProcess >> windowsShellCommand [
 
 	command := 'C:\Windows\System32\cmd.exe'.
-	arguments addFirst: '/C'.
+	arguments 
+		ifNil: [ self addArgument: '/C' ]
+		ifNotNil: [ arguments addFirst: '/C' ].
 ]
 
 { #category : #'api - configuring' }
