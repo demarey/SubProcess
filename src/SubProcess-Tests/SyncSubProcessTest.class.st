@@ -91,7 +91,7 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	OSPlatform current isWindows 
 		ifTrue: [ process
 						windowsShellCommand;
-						addArgument: #('dir') ]	.
+						addArgument: 'dir' ]	.
 	
 	process run.
 	
