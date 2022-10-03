@@ -90,8 +90,8 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 		command: '/bin/ls'.
 	OSPlatform current isWindows 
 		ifTrue: [ process
-						command: self windowsShellCommand;
-						arguments: #('dir') ]	.
+						windowsShellCommand;
+						addArgument: #('dir') ]	.
 	
 	process run.
 	
@@ -102,10 +102,4 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	self assert: process stdErr isEmpty.
 	self assert: (process stdOut includesSubstring: 'ombu-sessions').
 
-]
-
-{ #category : #accessing }
-SyncSubProcessTest >> windowsShellCommand [
-
-	^ 'C:\Windows\System32\cmd.exe'
 ]

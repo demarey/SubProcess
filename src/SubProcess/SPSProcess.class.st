@@ -25,6 +25,18 @@ Class {
 	#category : #SubProcess
 }
 
+{ #category : #'api - configuring' }
+SPSProcess >> addArgument: aCollection [ 
+	
+	arguments add: aCollection
+]
+
+{ #category : #'api - configuring' }
+SPSProcess >> addArguments: aCollection [ 
+	
+	arguments addAll: aCollection
+]
+
 { #category : #'api - accessing' }
 SPSProcess >> arguments [
 
@@ -170,6 +182,13 @@ SPSProcess >> success: aBoolean [
 SPSProcess >> terminate [
 	
 	self flag: 'TODO'
+]
+
+{ #category : #'api - configuring' }
+SPSProcess >> windowsShellCommand [
+
+	command := 'C:\Windows\System32\cmd.exe'.
+	arguments addFirst: '/C'.
 ]
 
 { #category : #'api - configuring' }
