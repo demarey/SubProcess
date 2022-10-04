@@ -1,5 +1,4 @@
-# SubProcess ![Build Status](https://github.com/demarey/SubProcess/actions/workflows/main.yml/badge.svg)
-
+# SubProcess [![Build Status](https://github.com/demarey/SubProcess/actions/workflows/main.yml/badge.svg)](https://github.com/demarey/SubProcess/actions/workflows/main.yml)
 
 This project allows to run OS sub processes from a Pharo image.
 It uses GLib IO library to spawn processes through FFI calls.
