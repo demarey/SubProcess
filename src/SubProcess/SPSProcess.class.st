@@ -103,5 +103,5 @@ SPSProcess >> success: aBoolean [
 { #category : #'api - running' }
 SPSProcess >> terminate [
 	
-	self notYetImplemented.
+	self flag: 'TODO process kill'
 ]
