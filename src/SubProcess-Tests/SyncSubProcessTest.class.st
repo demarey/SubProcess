@@ -86,16 +86,17 @@ SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 { #category : #tests }
 SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	
-	| dir |
+	| dir config |
 	dir := Smalltalk imagePath asFileReference parent / 'pharo-local'.
-	process := SPSProcessConfiguration new
+	config := SPSProcessConfiguration new
 		workingDirectory: dir;
 		command: '/bin/ls';
-		sync.
+		yourself.
 	OSPlatform current isWindows 
-		ifTrue: [ process
+		ifTrue: [ config
 						windowsShellCommand;
 						addArgument: 'dir' ]	.
+	process := config sync.
 	
 	process run.
 	
