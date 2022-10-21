@@ -11,22 +11,25 @@ WARNING 2: fetching of the exit code may not be reliable (TO FIX!)
 
 ### Run a simple command
 ```smalltalk
-process := SPSProcess new
-  command: '/bin/ls'.
+process := SPSProcessConfiguration new
+  command: '/bin/ls';
+  sync.
 process run.
  ```
   
 ```smalltalk
-process := SPSProcess new
-  command: 'C:\Windows\System32\systeminfo.exe'.
+process := SPSProcessConfiguration new
+  command: 'C:\Windows\System32\systeminfo.exe';
+  sync.
 process run.
 ```
   
 ### Run a command and getting the output
 ```smalltalk
-process := SPSProcess new
+process := SPSProcessConfiguration new
   command: '/bin/ls';
-  run.
+  sync.
+process run.
   
 out := process stdOut.
 err := process stdErr.
@@ -34,28 +37,31 @@ err := process stdErr.
   
 ### Set the working directory
 ```smalltalk
-process := SPSProcess new
+process := SPSProcessConfiguration new
   workingDirectory: '/etc';
-  command: '/bin/ls'.
+  command: '/bin/ls';
+  sync.
 	
 process run.
 ```
   
 ### Give arguments
 ```smalltalk
-process := SPSProcess new
+process := SPSProcessConfiguration new
   command: '/bin/ls';
-  arguments: #('/etc').
+  arguments: #('/etc');
+  sync.
 	
 process run.
 ```
   
 ### Use a shell to run the command
 ```smalltalk
-process := SPSProcess new
+process := SPSProcessConfiguration new
   workingDirectory: 'C:\';
   windowsShellCommand;
-  addArgument: 'dir'.
+  addArgument: 'dir';
+  sync.
   
 process run.
 ```
@@ -63,22 +69,25 @@ process run.
 ## Getting the status of the process
 ### Know if the process has completed its execution
 ```smalltalk
-process := SPSProcess new
+process := SPSProcessConfiguration new
   command: '/bin/ls';
-  run.
+  sync.
+process run.
 self assert: process isComplete.
 ```
 ### Know if the spawn of the process is sucessful (no error)
 ```smalltalk
-process := SPSProcess new
+process := SPSProcessConfiguration new
   command: '/bin/ls';
-  run.
+  sync.
+process run.
 self assert: process isSuccess.
 ```
 ### Getting error if the spawn of the process failed
 ```smalltalk
-process := SPSProcess new
-  command: '/bin/ls'.
+process := SPSProcessConfiguration new
+  command: '/bin/ls';
+  sync.
 [ process run ]
 on: SPSError
 do: [ :error | error messageText inspect ]
@@ -88,9 +97,10 @@ do: [ :error | error messageText inspect ]
 When running a command that will give you back some output (standard output or standard error), you will get an encoded String (a byte array) that needs to be decoded. SubProcess cannot guess what will be the encoding as many encodings are used worldwide. One commonly used encoding is utf-8 on unix-like systems. On Windows, different encondings are used.
 SubProcess configure a default encoding (`utf-8` on unix-like systems and `cp-850` on Windows) for convenience. Do not forget you could need a different encoding. If so, you can configure it before running the process:
 ```smalltalk
-process := SPSProcess new
+process := SPSProcessConfiguration new
   encoding: 'ISO-8859-2'
   command: '/bin/ls';
-  run.
+  sync.
+process run.
 out := process stdOut.
 ```
