@@ -23,9 +23,10 @@ SyncSubProcessTest >> tearDown [
 { #category : #tests }
 SyncSubProcessTest >> testRunningANonExistingCommand [
 	
-	process := SPSProcess new
+	process := SPSProcessConfiguration new
 		command: 'non_exisiting_command';
-		arguments: #('foo' 'bar').
+		arguments: #('foo' 'bar');
+		sync.
 	
 	self
 		should: [ process run ]
@@ -47,8 +48,9 @@ SyncSubProcessTest >> testRunningANonExistingCommand [
 SyncSubProcessTest >> testRunningBasicCommand [
 	
 	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
-	process := SPSProcess new
-		command: '/bin/ls'.
+	process := SPSProcessConfiguration new
+		command: '/bin/ls';
+		sync.
 	
 	process run.
 	
@@ -66,8 +68,9 @@ SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 	| output |
 	
 	self isRunningOnWindows ifFalse: [ self skip: 'skipping windows test'].
-	process := SPSProcess new
-		command: 'C:\Windows\System32\systeminfo.exe'.
+	process := SPSProcessConfiguration new
+		command: 'C:\Windows\System32\systeminfo.exe';
+		sync.
 	
 	process run.
 	
@@ -85,9 +88,10 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	
 	| dir |
 	dir := Smalltalk imagePath asFileReference parent / 'pharo-local'.
-	process := SPSProcess new
+	process := SPSProcessConfiguration new
 		workingDirectory: dir;
-		command: '/bin/ls'.
+		command: '/bin/ls';
+		sync.
 	OSPlatform current isWindows 
 		ifTrue: [ process
 						windowsShellCommand;
