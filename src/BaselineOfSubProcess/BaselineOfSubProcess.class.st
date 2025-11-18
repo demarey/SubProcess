@@ -1,10 +1,11 @@
 Class {
-	#name : #BaselineOfSubProcess,
-	#superclass : #BaselineOf,
-	#category : #BaselineOfSubProcess
+	#name : 'BaselineOfSubProcess',
+	#superclass : 'BaselineOf',
+	#category : 'BaselineOfSubProcess',
+	#package : 'BaselineOfSubProcess'
 }
 
-{ #category : #baselines }
+{ #category : 'baselines' }
 BaselineOfSubProcess >> baseline: spec [
 	<baseline>
 
@@ -13,7 +14,7 @@ BaselineOfSubProcess >> baseline: spec [
 		do: [ 
 			spec baseline: 'Glib' with: [ 
 				spec 
-					repository: 'github://demarey/gtk-bindings/src';
+					repository: 'github://demarey/gtk-bindings:main';
 					loads: 'GIO-standalone' ].
 		
 			spec
