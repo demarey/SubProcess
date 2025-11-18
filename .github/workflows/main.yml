@@ -43,7 +43,7 @@ jobs:
         run: |
           curl https://files.pharo.org/vm/pharo-spur64-headless/Windows-x86_64/stable.zip --output vm.zip
           unzip -q vm.zip -d extracted
-          curl http://files.pharo.org/vm/extra/gtk-glib-win64.zip  --output gtk-glib.zip
+          curl https://files.pharo.org/vm/extra/gtk-glib-win64.zip  --output gtk-glib.zip
           unzip -q gtk-glib.zip -d extracted
           smalltalkci --vm extracted/Pharo.exe -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }}
         if: runner.os == 'Windows'
