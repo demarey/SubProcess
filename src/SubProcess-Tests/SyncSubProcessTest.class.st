@@ -63,6 +63,40 @@ SyncSubProcessTest >> testRunningBasicCommand [
 ]
 
 { #category : #tests }
+SyncSubProcessTest >> testRunningCommandWithNonZeroExitCode [
+
+	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	process := SPSProcessConfiguration new
+		command: '/bin/sh';
+		arguments: #('-c' 'exit 42');
+		sync.
+	
+	process run.
+	
+	self assert: process isComplete.
+	self assert: process isSuccess.
+	self assert: process exitCode equals: 42.
+	self deny: process isExitCodeSuccess.
+]
+
+{ #category : #tests }
+SyncSubProcessTest >> testRunningCommandWithNonZeroExitCodeOnWindows [
+
+	self isRunningOnWindows ifFalse: [ self skip: 'skipping windows test'].
+	process := SPSProcessConfiguration new
+		windowsShellCommand;
+		addArgument: 'exit 42';
+		sync.
+	
+	process run.
+	
+	self assert: process isComplete.
+	self assert: process isSuccess.
+	self assert: process exitCode equals: 42.
+	self deny: process isExitCodeSuccess.
+]
+
+{ #category : #tests }
 SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 	
 	| output |
