@@ -48,7 +48,9 @@ SPSAbstractProcess >> initialize [
 { #category : #'api - testing' }
 SPSAbstractProcess >> isComplete [
 	
-	"True if spawned child program has completed its execution"
+	"True if spawned child program has completed its execution, whatever the reason.
+	 Once true, the child program is not running anymore: it either exited by itself
+	 (normal or signal exit) or was terminated by the user (see SPSAsyncProcess >> wasTerminated)."
 	
 	^ isComplete 
 ]
