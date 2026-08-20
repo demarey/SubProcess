@@ -41,6 +41,8 @@ jobs:
         run: |
           curl -L https://github.com/pharo-spec/gtk-bundle-builder/releases/download/v1/pharo-vm-Windows-x86_64-gtk-stable.zip --output vm.zip
           unzip -q vm.zip -d extracted
+          curl -sL https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-glib2-2.84.2-1-any.pkg.tar.zst --output glib2.pkg
+          tar --zstd -xf glib2.pkg -C extracted --strip-components=2 clang64/bin/gspawn-win64-helper.exe
           export PATH="$PWD/extracted:$PATH"
           smalltalkci --vm extracted/Pharo.exe -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }}
         if: runner.os == 'Windows'
