@@ -39,10 +39,9 @@ jobs:
           smalltalk-image: ${{ matrix.smalltalk }}
       - name: Test on Windows
         run: |
-          curl https://files.pharo.org/vm/pharo-spur64-headless/Windows-x86_64/stable12.zip --output vm.zip
+          curl -L https://github.com/pharo-spec/gtk-bundle-builder/releases/download/v1/pharo-vm-Windows-x86_64-gtk-stable.zip --output vm.zip
           unzip -q vm.zip -d extracted
-          curl https://files.pharo.org/vm/extra/gtk-glib-win64.zip  --output gtk-glib.zip
-          unzip -q gtk-glib.zip -d extracted
+          export PATH="$PWD/extracted:$PATH"
           smalltalkci --vm extracted/Pharo.exe -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }}
         if: runner.os == 'Windows'
         shell: bash
