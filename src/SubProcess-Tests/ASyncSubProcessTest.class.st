@@ -45,7 +45,7 @@ ASyncSubProcessTest >> newProcessConfigurationForLongRunningProcess [
 	"Answer a configuration for a process that stays alive for a long time."
 
 	self isRunningOnWindows
-		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: 'timeout /T 30' ].
+		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: 'powershell -Command "Start-Sleep -Seconds 30"' ].
 	^ SPSProcessConfiguration new
 		command: '/bin/sleep';
 		arguments: { '30' };
