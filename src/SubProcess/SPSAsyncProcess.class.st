@@ -20,8 +20,7 @@ Class {
 		'exitCode',
 		'completionSemaphore',
 		'drainSemaphore',
-		'announcer',
-		'collectsOutput',
+		'completionBlock',
 		'outputLineBlock',
 		'stdOutCollector',
 		'stdErrCollector',
@@ -36,14 +35,7 @@ Class {
 	#category : #SubProcess
 }
 
-{ #category : #'api - accessing' }
-SPSAsyncProcess >> announcer [
-
-	announcer ifNil: [ announcer := Announcer new ].
-	^ announcer
-]
-
-{ #category : #private }
+	{ #category : 'private - lifecycle' }
 SPSAsyncProcess >> beCompleted: waitStatus [
 
 	self isComplete ifTrue: [ ^ self ].
@@ -57,38 +49,31 @@ SPSAsyncProcess >> beCompleted: waitStatus [
 	self announceCompleted
 ]
 
-{ #category : #'api - configuring' }
-SPSAsyncProcess >> collectOutput [
-
-	collectsOutput := true.
-	^ self
-]
-
-{ #category : #'api - accessing' }
-SPSAsyncProcess >> collectsOutput [
-
-	^ collectsOutput ifNil: [ false ]
-]
-
-{ #category : #private }
+	{ #category : 'private - accessing' }
 SPSAsyncProcess >> completionSemaphore [
 
 	^ completionSemaphore ifNil: [ completionSemaphore := Semaphore new ]
 ]
 
-{ #category : #'api - configuring' }
+{ #category : #'api - accessing' }
+SPSAsyncProcess >> shouldCollectOutput [
+
+	^ self configuration shouldCollectOutput
+]
+
+	{ #category : 'private - output' }
 SPSAsyncProcess >> configureOutputReading [
 
 	self outputsBeingRead ifTrue: [ self startOutputListeners ]
 ]
 
-{ #category : #private }
+	{ #category : 'private - accessing' }
 SPSAsyncProcess >> drainSemaphore [
 
 	^ drainSemaphore ifNil: [ drainSemaphore := Semaphore new ]
 ]
 
-{ #category : #private }
+	{ #category : 'private - output' }
 SPSAsyncProcess >> emitOutputLine: aLine [
 
 	self outputLineBlock ifNotNil: [ self outputLineBlock value: aLine ]
@@ -103,13 +88,13 @@ SPSAsyncProcess >> exitCode [
 	^ exitCode
 ]
 
-{ #category : #private }
+	{ #category : 'private - lifecycle' }
 SPSAsyncProcess >> ensureEngine [
 
 	GEngine isRunning ifFalse: [ GEngine ensureRunning ]
 ]
 
-{ #category : #private }
+	{ #category : 'private - output' }
 SPSAsyncProcess >> installDrainWatches [
 
 	"Each output listener signals the drain semaphore once it reaches EOF. We then wait
@@ -120,7 +105,7 @@ SPSAsyncProcess >> installDrainWatches [
 	stdErrListener ifNotNil: [ stdErrListener whenTerminatedDo: [ self drainSemaphore signal ] ]
 ]
 
-{ #category : #private }
+{ #category : 'private - output' }
 SPSAsyncProcess >> newOutputListener: aChannel collector: stdCollector [
 
 	^ aChannel
@@ -132,7 +117,7 @@ SPSAsyncProcess >> newOutputListener: aChannel collector: stdCollector [
 			self emitOutputLine: lineWithoutTerminator ]
 ]
 
-{ #category : #private }
+	{ #category : 'private - output' }
 SPSAsyncProcess >> stripLineTerminator: aLine [
 
 	"g_io_channel_read_line keeps the terminator, so remove any trailing CR/LF."
@@ -144,10 +129,10 @@ SPSAsyncProcess >> stripLineTerminator: aLine [
 	^ lineWithoutTerminator
 ]
 
-{ #category : #private }
+	{ #category : 'private - lifecycle' }
 SPSAsyncProcess >> announceCompleted [
 
-	self announcer announce: (SPSProcessCompletedAnnouncement process: self)
+	completionBlock ifNotNil: [ completionBlock value: self ]
 ]
 
 { #category : #'api - accessing' }
@@ -166,10 +151,10 @@ SPSAsyncProcess >> outputLineDo: aBlock [
 	^ self
 ]
 
-{ #category : #private }
+	{ #category : 'private - output' }
 SPSAsyncProcess >> outputsBeingRead [
 
-	^ self collectsOutput or: [ self outputLineBlock notNil ]
+	^ self shouldCollectOutput or: [ self outputLineBlock notNil ]
 ]
 
 { #category : #'api - running' }
@@ -229,17 +214,17 @@ SPSAsyncProcess >> stdOutChannel [
 	^ process outChannel
 ]
 
-{ #category : #private }
+	{ #category : 'private - output' }
 SPSAsyncProcess >> startOutputListeners [
 
 	stdOutListener := self
 		newOutputListener: self stdOutChannel
-		collector: (self collectsOutput
+		collector: (self shouldCollectOutput
 			ifTrue: [ stdOutCollector := WriteStream on: String new ]
 			ifFalse: [ nil ]).
 	stdErrListener := self
 		newOutputListener: self stdErrChannel
-		collector: (self collectsOutput
+		collector: (self shouldCollectOutput
 			ifTrue: [ stdErrCollector := WriteStream on: String new ]
 			ifFalse: [ nil ]).
 	"Subscribe to the EOF announcements BEFORE starting the listeners, otherwise a fast
@@ -249,7 +234,7 @@ SPSAsyncProcess >> startOutputListeners [
 	stdErrListener start
 ]
 
-{ #category : #private }
+	{ #category : 'private - output' }
 SPSAsyncProcess >> stopOutputListeners [
 
 	stdOutListener ifNotNil: [ stdOutListener stop. stdOutListener := nil ].
@@ -271,7 +256,7 @@ SPSAsyncProcess >> terminate [
 	self announceCompleted
 ]
 
-{ #category : #private }
+	{ #category : 'private - output' }
 SPSAsyncProcess >> waitForOutputDrain [
 
 	"Let the output listeners drain the remaining bytes (up to EOF) before we close the
@@ -288,6 +273,15 @@ SPSAsyncProcess >> waitForOutputDrain [
 ]
 
 { #category : #'api - testing' }
+SPSAsyncProcess >> isSpawnSuccess [
+
+	"True if the child process was spawned/launched without error. Since a spawn failure makes
+	 #run raise an error, this answers true as soon as the process exists (after a successful #run)."
+
+	^ process notNil
+]
+
+{ #category : #'api - testing' }
 SPSAsyncProcess >> wasTerminated [
 
 	"True if the child program was killed on user request via #terminate (usually because of a
@@ -301,15 +295,14 @@ SPSAsyncProcess >> wasTerminated [
 { #category : #'api - events' }
 SPSAsyncProcess >> whenCompletedDo: aBlock [
 
-	"When the process completes its execution, evaluate aBlock with the process as argument."
+	"When the process completes its execution, evaluate aBlock with the process as argument.
+	 The process completes only once and supports a single subscriber: a later call replaces
+	 the previously registered block."
 
-	self announcer
-		when: SPSProcessCompletedAnnouncement
-		do: [ :announcement | aBlock value: announcement process ]
-		for: self
+	completionBlock := aBlock
 ]
 
-{ #category : #private }
+	{ #category : 'private - lifecycle' }
 SPSAsyncProcess >> watchCompletion [
 
 	process watch: [ :waitStatus | self beCompleted: waitStatus ].

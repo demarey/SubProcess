@@ -8,6 +8,12 @@ Class {
 }
 
 { #category : #configuring }
+SyncSubProcessTest >> skipIfRunningOnWindows [
+
+	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test']
+]
+
+{ #category : #configuring }
 SyncSubProcessTest >> isRunningOnWindows [
 
 	^ OSPlatform current isWindows
@@ -38,7 +44,7 @@ SyncSubProcessTest >> testRunningANonExistingCommand [
 		].
 	
 	self assert: process isComplete.
-	self deny: process isSuccess.
+	self deny: process isSpawnSuccess.
 	self assert: process stdErr isEmpty.
 	self assert: process stdOut isEmpty.
 	self assert: process exitCode isNil
@@ -47,7 +53,7 @@ SyncSubProcessTest >> testRunningANonExistingCommand [
 { #category : #tests }
 SyncSubProcessTest >> testRunningBasicCommand [
 	
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
 		command: '/bin/ls';
 		sync.
@@ -55,8 +61,8 @@ SyncSubProcessTest >> testRunningBasicCommand [
 	process run.
 	
 	self assert: process isComplete.
-	self assert: process isSuccess.
-	self assert: process isExitCodeSuccess.
+	self assert: process isSpawnSuccess.
+	self assert: process isExitSuccess.
 	self assert: process stdErr isEmpty.
 	self deny: process stdOut isEmpty.
 
@@ -65,7 +71,7 @@ SyncSubProcessTest >> testRunningBasicCommand [
 { #category : #tests }
 SyncSubProcessTest >> testRunningCommandWithNonZeroExitCode [
 
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
 		command: '/bin/sh';
 		arguments: #('-c' 'exit 42');
@@ -74,9 +80,9 @@ SyncSubProcessTest >> testRunningCommandWithNonZeroExitCode [
 	process run.
 	
 	self assert: process isComplete.
-	self assert: process isSuccess.
+	self assert: process isSpawnSuccess.
 	self assert: process exitCode equals: 42.
-	self deny: process isExitCodeSuccess.
+	self deny: process isExitSuccess.
 ]
 
 { #category : #tests }
@@ -91,9 +97,9 @@ SyncSubProcessTest >> testRunningCommandWithNonZeroExitCodeOnWindows [
 	process run.
 	
 	self assert: process isComplete.
-	self assert: process isSuccess.
+	self assert: process isSpawnSuccess.
 	self assert: process exitCode equals: 42.
-	self deny: process isExitCodeSuccess.
+	self deny: process isExitSuccess.
 ]
 
 { #category : #tests }
@@ -109,8 +115,8 @@ SyncSubProcessTest >> testRunningBasicCommandOnWindows [
 	process run.
 	
 	self assert: process isComplete.
-	self assert: process isSuccess.
-	self assert: process isExitCodeSuccess.
+	self assert: process isSpawnSuccess.
+	self assert: process isExitSuccess.
 	self assert: process stdErr isEmpty.
 	self deny: process stdOut isEmpty.
 	output := process stdOut.
@@ -135,8 +141,8 @@ SyncSubProcessTest >> testRunningCommandInGivenWorkingDirectory [
 	process run.
 	
 	self assert: process isComplete.
-	self assert: process isSuccess.
-	self assert: process isExitCodeSuccess.
+	self assert: process isSpawnSuccess.
+	self assert: process isExitSuccess.
 	self assert: process exitCode equals: 0.
 	self assert: process stdErr isEmpty.
 	self assert: (process stdOut includesSubstring: 'ombu-sessions').

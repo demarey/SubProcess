@@ -13,7 +13,8 @@ Class {
 		'command',
 		'arguments',
 		'workingDirectory',
-		'encoding'
+		'encoding',
+		'collectsOutput'
 	],
 	#pools : [
 		'GSpawnFlags'
@@ -63,13 +64,28 @@ SPSProcessConfiguration >> async [
 	^  SPSAsyncProcess withConfiguration: self
 ]
 
+{ #category : #'api - configuring' }
+SPSProcessConfiguration >> collectsOutput [
+
+	"Enable asynchroneous output auto-collection. Off by default (see shouldCollectOutput)."
+
+	collectsOutput := true
+]
+
+{ #category : #'api - accessing' }
+SPSProcessConfiguration >> shouldCollectOutput [
+
+	"Answer whether asynchroneous processes built from this configuration should auto-collect
+	 their output (stdOut/stdErr). Default is false: output is not captured unless #collectsOutput."
+
+	^ collectsOutput ifNil: [ false ]
+]
+
 { #category : #'api - accessing' }
 SPSProcessConfiguration >> command [
 
 	^ command
-]
-
-{ #category : #'api - configuring' }
+]{ #category : #'api - configuring' }
 SPSProcessConfiguration >> command: aString [ 
 	
 	command := aString

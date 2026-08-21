@@ -101,7 +101,7 @@ process run.
 out := process stdOutChannel readLine.
 ```
 WARNING: if the child produces a lot of output, nothing reads the pipes: they fill up, the child
-blocks writing and never finishes. Prefer `collectOutput` or `outputLineDo:` for output-heavy
+blocks writing and never finishes. Prefer `collectsOutput` or `outputLineDo:` for output-heavy
 commands.
 
 ### Consuming the output line-by-line (streaming)
@@ -117,14 +117,16 @@ process run.
 ```
 
 ### Auto-collecting the output
-Call `collectOutput` to capture stdout and stderr line-by-line in the background. The collected
-text is then available on `stdOut` / `stdErr`. When the process completes, the output listeners
-are drained to EOF before completion is announced, so the collected output is complete:
+By default no output is captured. Call `collectsOutput` on the configuration to capture stdout
+and stderr line-by-line in the background. The collected text is then available on `stdOut` /
+`stdErr`. When the process completes, the output listeners are drained to EOF before completion
+is announced, so the collected output is complete:
 ```smalltalk
-process := (SPSProcessConfiguration new
+process := SPSProcessConfiguration new
   command: '/bin/sh';
   arguments: #('-c' 'echo hello');
-  async) collectOutput.
+  collectsOutput;
+  async.
 process run.
 process runAndWaitTimeOut: 2 seconds.
 out := process stdOut.   "a String containing 'hello'"
@@ -150,6 +152,37 @@ process := SPSProcessConfiguration new
 process run.
 process terminate.
 ```
+
+## How asynchroneous processes work internally
+
+An `async` process spawns the child and returns immediately; a few background elements then
+orchestrate its lifecycle. Concretely, when a process is `run`, the following happen:
+
+1. **Main (caller) thread** — `run` spawns the child via `g_spawn_async_with_pipes` with
+   `G_SPAWN_DO_NOT_REAP_CHILD` (so our watch — and not GLib — reaps the child), then sets up the
+   output reading and the completion watch, and returns at once. The caller never blocks unless
+   it explicitly calls `runAndWaitTimeOut:` or reads a channel.
+
+2. **Completion-watch worker** — a dedicated background Pharo process iterates the GLib default
+   main context until `isComplete` is set. This is what dispatches GLib's child-watch callback,
+   so completion is detected even in a headless image with no running GTK event loop. When the
+   child exits, the callback records the exit code.
+
+3. **Output listener threads** — one per channel (stdout, stderr). Each is a forked Pharo process
+   (`Channel read listener: ...`) that runs a `GIOChannelReadLineListener`: it blocks reading lines
+   from its pipe with `g_io_channel_read_line` (on a ThreadedFFI `TFWorker` thread) until EOF, and
+   dispatches each line to the configured action. These threads are what keep the pipes drained, so
+   a child producing lots of output never deadlocks on a full pipe. They are only started when
+   output is read, i.e. with `collectsOutput` or `outputLineDo:` (message `outputsBeingRead`).
+
+4. **Drain & completion** — when the child exits, `beCompleted:` first lets the listener threads
+   drain their pipes to EOF (waiting on a fixed 5 s timeout, with a diagnostic if it expires), then
+   closes the process, sets `isComplete`, and announces completion. This guarantees `stdOut`/
+   `stdErr` are complete when `whenCompletedDo:` fires or `runAndWaitTimeOut:` returns.
+
+Because these steps run on different threads/processes, the streams are consumed asynchronously:
+when you poll `isComplete`, always assume data may still be settling unless you wait on the actual
+condition you care about (see `waitFor:within:` used by the tests).
 
 ## Getting the status of the process
 ### Know if the process has completed its execution
@@ -183,7 +216,15 @@ process := SPSProcessConfiguration new
   command: '/bin/ls';
   sync.
 process run.
-self assert: process isSuccess.
+self assert: process isSpawnSuccess.
+```
+### Know if the process exited successfully (exit code 0)
+```smalltalk
+process := SPSProcessConfiguration new
+  command: '/bin/ls';
+  sync.
+process run.
+self assert: process isExitSuccess.
 ```
 ### Getting error if the spawn of the process failed
 ```smalltalk

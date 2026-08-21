@@ -10,7 +10,7 @@ Class {
 	#instVars : [
 		'stdOut',
 		'stdErr',
-		'isSuccess',
+		'isSpawnSuccess',
 		'error',
 		'exitCode'
 	],
@@ -51,9 +51,9 @@ SPSProcess >> exitCode: anInteger [
 ]
 
 { #category : #'api - testing' }
-SPSProcess >> isSuccess [
+SPSProcess >> isSpawnSuccess [
 	
-	^ isSuccess
+	^ isSpawnSuccess
 ]
 
 { #category : #'api - running' }
@@ -67,7 +67,7 @@ SPSProcess >> run [
 		processInfo: self.
 		
 	isComplete := true.
-	self isSuccess ifFalse: [ self error signal ]
+	self isSpawnSuccess ifFalse: [ self error signal ]
 ]
 
 { #category : #'api - accessing' }
@@ -95,9 +95,9 @@ SPSProcess >> stdOut: aByteArray [
 ]
 
 { #category : #private }
-SPSProcess >> success: aBoolean [ 
+SPSProcess >> isSpawnSuccess: aBoolean [ 
 
-	isSuccess := aBoolean
+	isSpawnSuccess := aBoolean
 ]
 
 { #category : #'api - running' }

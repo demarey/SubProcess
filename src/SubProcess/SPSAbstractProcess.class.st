@@ -56,15 +56,17 @@ SPSAbstractProcess >> isComplete [
 ]
 
 { #category : #'api - testing' }
-SPSAbstractProcess >> isExitCodeSuccess [
+SPSAbstractProcess >> isExitSuccess [
 	
-	^ self exitCode = 0
+	"True if the child process has completed with a success exit status (exit code 0)."
+	
+	^ self isComplete and: [ self exitCode = 0 ]
 ]
 
 { #category : #'api - testing' }
-SPSAbstractProcess >> isSuccess [
+SPSAbstractProcess >> isSpawnSuccess [
 	
-	"True on child program spawn success, False otherwise"
+	"True if the child process was spawned/launched without error."
 	self subclassResponsibility
 ]
 

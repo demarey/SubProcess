@@ -8,6 +8,12 @@ Class {
 }
 
 { #category : #testing }
+ASyncSubProcessTest >> skipIfRunningOnWindows [
+
+	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test']
+]
+
+{ #category : #testing }
 ASyncSubProcessTest >> isRunningOnWindows [
 
 	^ OSPlatform current isWindows
@@ -21,30 +27,40 @@ ASyncSubProcessTest >> tearDown [
 ]
 
 { #category : #'helpers - waiting' }
-ASyncSubProcessTest >> waitForCompletionOf: anAsyncProcess [
+ASyncSubProcessTest >> waitFor: aBlock within: aDuration [
+
+	"Poll every 20ms until aBlock answers true or aDuration elapses.
+	 Answer whether aBlock answered true before the deadline."
 
 	| deadline |
-	deadline := DateAndTime now + 10 seconds.
-	[ anAsyncProcess isComplete or: [ DateAndTime now > deadline ] ]
-		whileFalse: [ (50 milliSeconds) asDelay wait ].
-	^ anAsyncProcess isComplete
+	deadline := DateAndTime now + aDuration.
+	[ aBlock value or: [ DateAndTime now > deadline ] ]
+		whileFalse: [ (20 milliSeconds) asDelay wait ].
+	^ aBlock value
+]
+
+{ #category : #'helpers - waiting' }
+ASyncSubProcessTest >> waitForCompletionOf: anAsyncProcess [
+
+	^ self waitFor: [ anAsyncProcess isComplete ] within: 10 seconds
 ]
 
 { #category : #tests }
 ASyncSubProcessTest >> testAutoCollectedOutput [
 	| out |
 
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
-	process := (SPSProcessConfiguration new
+	self skipIfRunningOnWindows.
+	process := SPSProcessConfiguration new
 		command: '/bin/sh';
 		arguments: #('-c' 'echo hello');
-		async) collectOutput.
+		collectsOutput;
+		async.
 	
 	process run.
 	
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
-	self assert: process isExitCodeSuccess.
+	self assert: process isExitSuccess.
 	out := process stdOut.
 	self assert: (out includesSubstring: 'hello').
 ]
@@ -53,17 +69,18 @@ ASyncSubProcessTest >> testAutoCollectedOutput [
 ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 	| out |
 
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
-	process := (SPSProcessConfiguration new
+	self skipIfRunningOnWindows.
+	process := SPSProcessConfiguration new
 		command: '/bin/sh';
 		arguments: #('-c' 'seq 1 50000');
-		async) collectOutput.
+		collectsOutput;
+		async.
 
 	process run.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
-	self assert: process isExitCodeSuccess.
+	self assert: process isExitSuccess.
 	out := process stdOut.
 	self assert: (out occurrencesOf: Character cr) >= 50000.
 	self assert: (out includesSubstring: '50000').
@@ -72,7 +89,7 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 { #category : #tests }
 ASyncSubProcessTest >> testCompletion [
 	
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
 		command: '/bin/sh';
 		arguments: #('-c' 'exit 42');
@@ -83,14 +100,14 @@ ASyncSubProcessTest >> testCompletion [
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
 	self assert: process exitCode equals: 42.
-	self deny: process isExitCodeSuccess.
+	self deny: process isExitSuccess.
 ]
 
 { #category : #tests }
 ASyncSubProcessTest >> testCompletionCallback [
 	| completed exit |
 	
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 	completed := false.
 	exit := nil.
 	process := SPSProcessConfiguration new
@@ -112,7 +129,7 @@ ASyncSubProcessTest >> testCompletionCallback [
 ASyncSubProcessTest >> testRunningBasicCommand [
 	| out |
 	
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 
 	process := SPSProcessConfiguration new
 		command: '/bin/ls';
@@ -127,9 +144,9 @@ ASyncSubProcessTest >> testRunningBasicCommand [
 
 { #category : #tests }
 ASyncSubProcessTest >> testStreamingOutputCallback [
-	| lines deadline |
+	| lines |
 
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 	lines := OrderedCollection new.
 	process := SPSProcessConfiguration new
 		command: '/bin/sh';
@@ -140,17 +157,14 @@ ASyncSubProcessTest >> testStreamingOutputCallback [
 	process run.
 
 	self assert: (self waitForCompletionOf: process).
-	deadline := DateAndTime now + 5 seconds.
-	[ lines size >= 10 or: [ DateAndTime now > deadline ] ]
-		whileFalse: [ (20 milliSeconds) asDelay wait ].
-	self assert: lines size >= 10.
+	self assert: (self waitFor: [ lines size >= 10 ] within: 5 seconds).
 	self assert: (lines includes: '10').
 ]
 
 { #category : #tests }
 ASyncSubProcessTest >> testTerminate [
 
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
 		command: '/bin/sleep';
 		arguments: #('30');
@@ -167,7 +181,7 @@ ASyncSubProcessTest >> testTerminate [
 { #category : #tests }
 ASyncSubProcessTest >> testTimeOut [
 
-	self isRunningOnWindows ifTrue: [ self skip: 'skipping unix test'].
+	self skipIfRunningOnWindows.
 	process := SPSProcessConfiguration new
 		command: '/bin/sleep';
 		arguments: #('30');
