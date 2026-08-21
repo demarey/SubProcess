@@ -94,6 +94,16 @@ ASyncSubProcessTest >> waitForCompletionOf: anAsyncProcess [
 	^ self waitFor: [ anAsyncProcess isComplete ] within: 10 seconds
 ]
 
+{ #category : #'helpers - leak' }
+ASyncSubProcessTest >> pidIsReaped: aPid [
+	"Answers whether the child process identified by aPid has already been reaped (no zombie).
+	 POSIX-only: a non-blocking waitpid answering -1 (ECHILD) means the process is gone/reaped."
+
+	| status |
+	status := FFIInt32 newBuffer.
+	^ (LibC uniqueInstance waitpid: aPid status: status options: 1) == -1
+]
+
 { #category : #tests }
 ASyncSubProcessTest >> testAutoCollectedOutput [
 	| out |
@@ -211,3 +221,114 @@ ASyncSubProcessTest >> testTimeOut [
 	self assert: process isComplete.
 	self assert: process wasTerminated.
 ]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testWriteToStdin [
+	| text |
+
+	self skipIfRunningOnWindows.
+	text := 'hello stdin'.
+	process := (self newProcessConfigurationWithShellCommand: 'cat')
+		collectsOutput;
+		async.
+	process run.
+	process stdInChannel writeFlush: text.
+	process stdInChannel shutDown: true.
+
+	self assert: (self waitForCompletionOf: process).
+	self assert: process isComplete.
+	self assert: process isExitSuccess.
+	self assert: (process stdOut includesSubstring: text).
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testWorkingDirectory [
+	| dir invocation |
+
+	dir := FileLocator temp / (self class name , '-test-' , UUID new asString).
+	dir ensureCreateDirectory.
+	[
+		invocation := self isRunningOnWindows
+			ifTrue: [ 'cd' ]
+			ifFalse: [ 'pwd' ].
+		process := (self newProcessConfigurationWithShellCommand: invocation)
+			workingDirectory: dir;
+			collectsOutput;
+			async.
+		process run.
+
+		self assert: (self waitForCompletionOf: process).
+		self assert: process isComplete.
+		self assert: process isExitSuccess.
+		self assert: (process stdOut includesSubstring: dir fullName)
+	] ensure: [ dir ensureDeleteAll ]
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testShellPipe [
+	| invocation |
+
+	invocation := self isRunningOnWindows
+		ifTrue: [ 'echo hello | findstr hello' ]
+		ifFalse: [ 'echo hello | grep hello' ].
+	process := (self newProcessConfigurationWithShellCommand: invocation)
+		collectsOutput;
+		async.
+	process run.
+
+	self assert: (self waitForCompletionOf: process).
+	self assert: process isComplete.
+	self assert: process isExitSuccess.
+	self assert: (process stdOut includesSubstring: 'hello').
+]
+
+{ #category : #tests }
+ASyncSubProcessTest >> testNonAsciiArgument [
+	| dir |
+
+	self skipIfRunningOnWindows.
+	dir := FileLocator temp / (self class name , '-éoï-' , UUID new asString).
+	dir ensureCreateDirectory.
+	[
+		(dir / 'ok.txt') ensureCreateFile.
+		process := SPSProcessConfiguration new
+			command: '/bin/ls';
+			arguments: { dir fullName };
+			collectsOutput;
+			async.
+		process run.
+
+		self assert: (self waitForCompletionOf: process).
+		self assert: process isComplete.
+		self assert: process isExitSuccess.
+		self assert: (process stdOut includesSubstring: 'ok.txt')
+	] ensure: [ dir ensureDeleteAll ]
+]
+
+{ #category : #'tests - leak' }
+ASyncSubProcessTest >> testAsyncLeavesNoZombie [
+	| pid |
+
+	self skipIfRunningOnWindows.
+	process := (self newProcessConfigurationWithShellCommand: 'exit 0') async.
+	process run.
+
+	self assert: (self waitForCompletionOf: process).
+	pid := process pid.
+	self assert: (self pidIsReaped: pid).
+]
+
+{ #category : #'tests - leak' }
+ASyncSubProcessTest >> testAsyncTerminateLeavesNoZombie [
+	| pid |
+
+	self skipIfRunningOnWindows.
+	process := self newProcessConfigurationForLongRunningProcess async.
+	process run.
+	pid := process pid.
+	process terminate.
+
+	self assert: process isComplete.
+	self assert: (self waitFor: [ self pidIsReaped: pid ] within: 5 seconds).
+]
+

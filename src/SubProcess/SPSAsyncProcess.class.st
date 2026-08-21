@@ -164,7 +164,7 @@ SPSAsyncProcess >> run [
 	process := GIOPipedProcess
 		spawn: self configuration command
 		arguments: self configuration arguments
-		workingDirectory: self configuration workingDirectory
+		workingDirectory: (self configuration workingDirectory ifNotNil: [ :wd | wd fullName ])
 		flags: G_SPAWN_DO_NOT_REAP_CHILD.
 	self ensureEngine.
 	self configureOutputReading.
@@ -200,6 +200,12 @@ SPSAsyncProcess >> stdErrChannel [
 SPSAsyncProcess >> stdInChannel [
 
 	^ process inChannel
+]
+
+{ #category : #'api - accessing' }
+SPSAsyncProcess >> pid [
+
+	^ process pid
 ]
 
 { #category : #'api - accessing' }
