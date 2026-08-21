@@ -26,6 +26,55 @@ ASyncSubProcessTest >> tearDown [
 	super tearDown.
 ]
 
+{ #category : #'helpers - building' }
+ASyncSubProcessTest >> newProcessConfigurationForDirectoryListing [
+
+	"Answer a configuration producing a non-empty directory listing."
+
+	self isRunningOnWindows
+		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: 'dir' ].
+	^ SPSProcessConfiguration new
+		command: '/bin/ls';
+		arguments: #();
+		yourself
+]
+
+{ #category : #'helpers - building' }
+ASyncSubProcessTest >> newProcessConfigurationForLongRunningProcess [
+
+	"Answer a configuration for a process that stays alive for a long time."
+
+	self isRunningOnWindows
+		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: 'timeout /T 30' ].
+	^ SPSProcessConfiguration new
+		command: '/bin/sleep';
+		arguments: { '30' };
+		yourself
+]
+
+{ #category : #'helpers - building' }
+ASyncSubProcessTest >> newProcessConfigurationProducingLines: anInteger [
+
+	"Answer a configuration emitting exactly anInteger lines of output."
+
+	self isRunningOnWindows
+		ifTrue: [ ^ self newProcessConfigurationWithShellCommand: ('for /L %i in (1,1,{1}) do @echo %i' format: { anInteger }) ].
+	^ self newProcessConfigurationWithShellCommand: ('seq 1 {1}' format: { anInteger })
+]
+
+{ #category : #'helpers - building' }
+ASyncSubProcessTest >> newProcessConfigurationWithShellCommand: anExpression [
+
+	"Answer a configuration running anExpression through the platform's shell."
+
+	| config |
+	config := SPSProcessConfiguration new.
+	self isRunningOnWindows
+		ifTrue: [ config command: 'C:\Windows\System32\cmd.exe'; addArgument: '/C'; addArgument: anExpression ]
+		ifFalse: [ config command: '/bin/sh'; arguments: { '-c'. anExpression } ].
+	^ config
+]
+
 { #category : #'helpers - waiting' }
 ASyncSubProcessTest >> waitFor: aBlock within: aDuration [
 
@@ -49,10 +98,7 @@ ASyncSubProcessTest >> waitForCompletionOf: anAsyncProcess [
 ASyncSubProcessTest >> testAutoCollectedOutput [
 	| out |
 
-	self skipIfRunningOnWindows.
-	process := SPSProcessConfiguration new
-		command: '/bin/sh';
-		arguments: #('-c' 'echo hello');
+	process := (self newProcessConfigurationWithShellCommand: 'echo hello')
 		collectsOutput;
 		async.
 	
@@ -70,9 +116,7 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 	| out |
 
 	self skipIfRunningOnWindows.
-	process := SPSProcessConfiguration new
-		command: '/bin/sh';
-		arguments: #('-c' 'seq 1 50000');
+	process := (self newProcessConfigurationWithShellCommand: 'seq 1 50000')
 		collectsOutput;
 		async.
 
@@ -89,11 +133,7 @@ ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 { #category : #tests }
 ASyncSubProcessTest >> testCompletion [
 	
-	self skipIfRunningOnWindows.
-	process := SPSProcessConfiguration new
-		command: '/bin/sh';
-		arguments: #('-c' 'exit 42');
-		async.
+	process := (self newProcessConfigurationWithShellCommand: 'exit 42') async.
 	
 	process run.
 	
@@ -107,13 +147,9 @@ ASyncSubProcessTest >> testCompletion [
 ASyncSubProcessTest >> testCompletionCallback [
 	| completed exit |
 	
-	self skipIfRunningOnWindows.
 	completed := false.
 	exit := nil.
-	process := SPSProcessConfiguration new
-		command: '/bin/sh';
-		arguments: #('-c' 'exit 0');
-		async.
+	process := (self newProcessConfigurationWithShellCommand: 'exit 0') async.
 	process whenCompletedDo: [ :aProcess |
 		completed := true.
 		exit := aProcess exitCode ].
@@ -129,11 +165,7 @@ ASyncSubProcessTest >> testCompletionCallback [
 ASyncSubProcessTest >> testRunningBasicCommand [
 	| out |
 	
-	self skipIfRunningOnWindows.
-
-	process := SPSProcessConfiguration new
-		command: '/bin/ls';
-		async.
+	process := self newProcessConfigurationForDirectoryListing async.
 	
 	process run.
 	
@@ -146,12 +178,8 @@ ASyncSubProcessTest >> testRunningBasicCommand [
 ASyncSubProcessTest >> testStreamingOutputCallback [
 	| lines |
 
-	self skipIfRunningOnWindows.
 	lines := OrderedCollection new.
-	process := SPSProcessConfiguration new
-		command: '/bin/sh';
-		arguments: #('-c' 'seq 1 10');
-		async.
+	process := (self newProcessConfigurationProducingLines: 10) async.
 	process outputLineDo: [ :aLine | lines add: aLine ].
 
 	process run.
@@ -164,11 +192,7 @@ ASyncSubProcessTest >> testStreamingOutputCallback [
 { #category : #tests }
 ASyncSubProcessTest >> testTerminate [
 
-	self skipIfRunningOnWindows.
-	process := SPSProcessConfiguration new
-		command: '/bin/sleep';
-		arguments: #('30');
-		async.
+	process := self newProcessConfigurationForLongRunningProcess async.
 	
 	process run.
 	self deny: process isComplete.
@@ -181,11 +205,7 @@ ASyncSubProcessTest >> testTerminate [
 { #category : #tests }
 ASyncSubProcessTest >> testTimeOut [
 
-	self skipIfRunningOnWindows.
-	process := SPSProcessConfiguration new
-		command: '/bin/sleep';
-		arguments: #('30');
-		async.
+	process := self newProcessConfigurationForLongRunningProcess async.
 	
 	self assert: (process runAndWaitTimeOut: 1 second).
 	self assert: process isComplete.

@@ -4,8 +4,6 @@ This project allows to run OS sub processes from a Pharo image.
 It uses GLib IO library to spawn processes through FFI calls.
 SubProcess offers a high-level API, OS-agnostic API to run easily processes from your Pharo code. Windows, Linux and Mac Os are supported!
 
-WARNING: Asynchroneous processes are supported but do not handle all platforms yet (the async tests currently run on POSIX systems).
-
 ## Examples
 
 ### Run a simple command

@@ -246,7 +246,7 @@ SPSAsyncProcess >> terminate [
 
 	isComplete ifTrue: [ ^ self ].
 
-	process forceTerminate.
+	SPSProcessControl terminatePid: process pid.
 	self outputsBeingRead ifTrue: [ self waitForOutputDrain ].
 	process close.
 	self stopOutputListeners.
