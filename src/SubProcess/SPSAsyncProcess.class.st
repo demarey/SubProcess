@@ -27,7 +27,8 @@ Class {
 		'stdOutListener',
 		'stdErrListener',
 		'watchWorker',
-		'wasTerminated'
+		'wasTerminated',
+		'processContext'
 	],
 	#pools : [
 		'GSpawnFlags'
@@ -167,6 +168,7 @@ SPSAsyncProcess >> run [
 		workingDirectory: (self configuration workingDirectory ifNotNil: [ :wd | wd fullName ])
 		flags: G_SPAWN_DO_NOT_REAP_CHILD.
 	self ensureEngine.
+	processContext := GMainContext new.
 	self configureOutputReading.
 	self watchCompletion
 ]
@@ -254,6 +256,7 @@ SPSAsyncProcess >> terminate [
 
 	SPSProcessControl terminatePid: process pid.
 	self outputsBeingRead ifTrue: [ self waitForOutputDrain ].
+	process removeChildWatch.
 	process close.
 	self stopOutputListeners.
 	wasTerminated := true.
@@ -311,11 +314,26 @@ SPSAsyncProcess >> whenCompletedDo: aBlock [
 	{ #category : 'private - lifecycle' }
 SPSAsyncProcess >> watchCompletion [
 
-	process watch: [ :waitStatus | self beCompleted: waitStatus ].
+	"Watch for child exit on the DEDICATED private GMainContext created in #run, iterated
+	 only by this watchWorker.
+
+	 Design decision: on Windows the child GPid is an OS process HANDLE and GLib's child
+	 watch polls it through g_poll. The shared default context is also iterated concurrently
+	 by other threads (e.g. the GTK main loop) and g_poll runs without the context lock, so
+	 closing the handle (in #beCompleted or #terminate) while another thread is
+	 mid-WaitForMultipleObjectsEx on it yields 'WaitForMultipleObjectsEx failed: the handle
+	 is invalid' warnings. GLib's GSubprocess avoids this by attaching its child watch to a
+	 single-threaded worker context (g_child_watch_source_new + g_source_attach, see
+	 gio/gsubprocess.c); we mirror that with a per-process private context, and g_spawn_close_pid
+	 stays in #beCompleted as GLib documents."
+
+	process
+		watch: [ :waitStatus | self beCompleted: waitStatus ]
+		in: processContext.
 	watchWorker := [
 		[ self isComplete ]
 			whileFalse: [
-				GMainContext iteration: false.
+				processContext iteration: false.
 				(1 milliSecond) asDelay wait ] ]
 		forkAt: Processor userBackgroundPriority
 		named: 'SubProcess-completion-watch'
