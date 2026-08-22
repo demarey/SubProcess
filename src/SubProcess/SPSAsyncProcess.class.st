@@ -181,7 +181,8 @@ SPSAsyncProcess >> runAndWaitTimeOut: aDuration [
 
 	| timedOut |
 	self run.
-	timedOut := self completionSemaphore waitTimeoutMilliseconds: aDuration asMilliSeconds.
+	self completionSemaphore waitTimeoutMilliseconds: aDuration asMilliSeconds.
+	timedOut := self isComplete not.
 	timedOut ifTrue: [ self terminate ].
 	^ timedOut
 ]
