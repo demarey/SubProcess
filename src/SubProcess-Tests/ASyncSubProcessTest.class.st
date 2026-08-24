@@ -226,15 +226,15 @@ ASyncSubProcessTest >> testWriteToStdin [
 	| text command |
 
 	text := 'hello stdin'.
-	command := self isRunningOnWindows ifTrue: [ 'findstr .*' ] ifFalse: [ 'cat' ].
+	command := self isRunningOnWindows
+		ifTrue: [ 'powershell -NoProfile -Command "Write-Output ([Console]::In.ReadLine())"' ]
+		ifFalse: [ 'cat' ].
 	process := (self newProcessConfigurationWithShellCommand: command)
 		collectsOutput;
 		async.
 	process run.
 	process stdInChannel writeFlush: text.
-	self isRunningOnWindows
-		ifTrue: [ process closeInputWithDiagnostics ]
-		ifFalse: [ process stdInChannel shutDown: true ].
+	process stdInChannel shutDown: true.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
