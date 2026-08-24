@@ -232,7 +232,9 @@ ASyncSubProcessTest >> testWriteToStdin [
 		async.
 	process run.
 	process stdInChannel writeFlush: text.
-	process stdInChannel shutDown: true.
+	self isRunningOnWindows
+		ifTrue: [ process closeInputWithDiagnostics ]
+		ifFalse: [ process stdInChannel shutDown: true ].
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.

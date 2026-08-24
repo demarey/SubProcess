@@ -229,6 +229,15 @@ SPSAsyncProcess >> stdInChannel [
 ]
 
 { #category : #'api - accessing' }
+SPSAsyncProcess >> closeInputWithDiagnostics [
+
+	"Temporary diagnostic for the Windows stdin EOF investigation; delegates to the
+	 underlying piped process (see GIOPipedProcess>>closeInputWithDiagnostics)."
+
+	^ process closeInputWithDiagnostics
+]
+
+{ #category : #'api - accessing' }
 SPSAsyncProcess >> pid [
 
 	^ process pid
