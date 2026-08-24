@@ -45,7 +45,7 @@ jobs:
           tar --zstd -xf glib2.pkg -C extracted --strip-components=2 clang64/bin/gspawn-win64-helper.exe
           export PATH="$PWD/extracted:$PATH"
           set +e
-          smalltalkci --vm extracted/Pharo.exe -v -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }} 2>&1
+          smalltalkci -d --vm extracted/Pharo.exe -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }} 2>&1
           STCI_EXIT=$?
           echo "STCHK smalltalkci exit=$STCI_EXIT"
           cp "$HOME/.smalltalkCI/_builds/crash.dmp" ./crash.dmp 2>/dev/null || echo "STCHK no crash.dmp"
