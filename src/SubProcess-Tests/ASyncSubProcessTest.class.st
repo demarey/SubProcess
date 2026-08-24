@@ -125,8 +125,7 @@ ASyncSubProcessTest >> testAutoCollectedOutput [
 ASyncSubProcessTest >> testAutoCollectedLargeOutput [
 	| out |
 
-	self skipIfRunningOnWindows.
-	process := (self newProcessConfigurationWithShellCommand: 'seq 1 50000')
+	process := (self newProcessConfigurationProducingLines: 50000)
 		collectsOutput;
 		async.
 
@@ -224,11 +223,11 @@ ASyncSubProcessTest >> testTimeOut [
 
 { #category : #tests }
 ASyncSubProcessTest >> testWriteToStdin [
-	| text |
+	| text command |
 
-	self skipIfRunningOnWindows.
 	text := 'hello stdin'.
-	process := (self newProcessConfigurationWithShellCommand: 'cat')
+	command := self isRunningOnWindows ifTrue: [ 'more' ] ifFalse: [ 'cat' ].
+	process := (self newProcessConfigurationWithShellCommand: command)
 		collectsOutput;
 		async.
 	process run.
@@ -284,18 +283,18 @@ ASyncSubProcessTest >> testShellPipe [
 
 { #category : #tests }
 ASyncSubProcessTest >> testNonAsciiArgument [
-	| dir |
+	| dir config |
 
-	self skipIfRunningOnWindows.
 	dir := FileLocator temp / (self class name , '-éoï-' , UUID new asString).
 	dir ensureCreateDirectory.
 	[
 		(dir / 'ok.txt') ensureCreateFile.
-		process := SPSProcessConfiguration new
-			command: '/bin/ls';
-			arguments: { dir fullName };
-			collectsOutput;
-			async.
+		self isRunningOnWindows
+			ifTrue: [ config := self newProcessConfigurationWithShellCommand: 'dir /b "' , dir fullName , '"' ]
+			ifFalse: [ config := SPSProcessConfiguration new
+				command: '/bin/ls';
+				arguments: { dir fullName } ].
+		process := config collectsOutput; async.
 		process run.
 
 		self assert: (self waitForCompletionOf: process).
