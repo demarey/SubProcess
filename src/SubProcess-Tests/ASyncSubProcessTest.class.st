@@ -232,16 +232,29 @@ ASyncSubProcessTest >> testWriteToStdin [
 	process := (self newProcessConfigurationWithShellCommand: command)
 		collectsOutput;
 		async.
+	self probe: 'P1 pre-run'.
 	process run.
+	self probe: 'P2 post-run'.
 	process stdInChannel writeFlush: text.
+	self probe: 'P3 post-writeFlush-text'.
 	self isRunningOnWindows
 		ifTrue: [ process stdInChannel writeFlush: (String with: (Character codePoint: 26)) ].
+	self probe: 'P4 post-writeFlush-ctrlz'.
 	process stdInChannel shutDown: true.
+	self probe: 'P5 post-shutDown'.
 
 	self assert: (self waitForCompletionOf: process).
+	self probe: 'P6 post-wait'.
 	self assert: process isComplete.
 	self assert: process isExitSuccess.
 	self assert: (process stdOut includesSubstring: text).
+]
+
+{ #category : #'temporary - crash isolation' }
+ASyncSubProcessTest >> probe: aString [
+
+	self isRunningOnWindows ifTrue: [
+		Stdio stdout nextPutAll: 'PROBE ' , aString; cr; flush ]
 ]
 
 { #category : #tests }
