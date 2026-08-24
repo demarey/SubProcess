@@ -28,27 +28,14 @@ Class {
 		'stdErrListener',
 		'watchWorker',
 		'wasTerminated',
-		'processContext'
+		'processContext',
+		'cleanupLock'
 	],
 	#pools : [
 		'GSpawnFlags'
 	],
 	#category : #SubProcess
 }
-
-	{ #category : 'private - lifecycle' }
-SPSAsyncProcess >> beCompleted: waitStatus [
-
-	self isComplete ifTrue: [ ^ self ].
-
-	exitCode := GIOProcess decodeExitCodeFromWaitStatus: waitStatus.
-	self outputsBeingRead ifTrue: [ self waitForOutputDrain ].
-	self stopOutputListeners.
-	process close.
-	completionSemaphore signal.
-	isComplete := true.
-	self announceCompleted
-]
 
 	{ #category : 'private - accessing' }
 SPSAsyncProcess >> completionSemaphore [
@@ -134,6 +121,39 @@ SPSAsyncProcess >> stripLineTerminator: aLine [
 SPSAsyncProcess >> announceCompleted [
 
 	completionBlock ifNotNil: [ completionBlock value: self ]
+]
+
+{ #category : 'private - lifecycle' }
+SPSAsyncProcess >> beCompleted: waitStatus [
+
+	self cleanupLock critical: [
+		self isComplete ifTrue: [ ^ self ].
+		exitCode := GIOProcess decodeExitCodeFromWaitStatus: waitStatus.
+		self finalizeCleanup ].
+	self announceCompleted
+]
+
+{ #category : 'private - lifecycle' }
+SPSAsyncProcess >> cleanupLock [
+
+	^ cleanupLock ifNil: [ cleanupLock := Mutex new ]
+]
+
+{ #category : 'private - lifecycle' }
+SPSAsyncProcess >> finalizeCleanup [
+
+	"Run exactly once, guarded by #cleanupLock, to stop output reading, detach the child watch
+	 and close the process. Both #terminate and #beCompleted: funnel here so the cleanup never
+	 runs concurrently: previously the two threads competed for the single drainSemaphore
+	 (producing a spurious 'timed out while draining') and raced the one-shot child watch
+	 (producing a GLib-CRITICAL 'Source ID ... was not found')."
+
+	self outputsBeingRead ifTrue: [ self waitForOutputDrain ].
+	self stopOutputListeners.
+	process removeChildWatch.
+	process close.
+	completionSemaphore signal.
+	isComplete := true
 ]
 
 { #category : #'api - accessing' }
@@ -253,16 +273,11 @@ SPSAsyncProcess >> stopOutputListeners [
 { #category : #'api - running' }
 SPSAsyncProcess >> terminate [
 
-	isComplete ifTrue: [ ^ self ].
-
-	SPSProcessControl terminatePid: process pid.
-	self outputsBeingRead ifTrue: [ self waitForOutputDrain ].
-	process removeChildWatch.
-	process close.
-	self stopOutputListeners.
-	wasTerminated := true.
-	isComplete := true.
-	completionSemaphore signal.
+	self cleanupLock critical: [
+		self isComplete ifTrue: [ ^ self ].
+		wasTerminated := true.
+		SPSProcessControl terminatePid: process pid.
+		self finalizeCleanup ].
 	self announceCompleted
 ]
 
