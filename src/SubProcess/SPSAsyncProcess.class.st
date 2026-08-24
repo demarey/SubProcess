@@ -129,7 +129,7 @@ SPSAsyncProcess >> beCompleted: waitStatus [
 	self cleanupLock critical: [
 		self isComplete ifTrue: [ ^ self ].
 		exitCode := GIOProcess decodeExitCodeFromWaitStatus: waitStatus.
-		self finalizeCleanup ].
+		self finalizeCleanupDraining: true ].
 	self announceCompleted
 ]
 
@@ -140,15 +140,18 @@ SPSAsyncProcess >> cleanupLock [
 ]
 
 { #category : 'private - lifecycle' }
-SPSAsyncProcess >> finalizeCleanup [
+SPSAsyncProcess >> finalizeCleanupDraining: shouldDrain [
 
 	"Run exactly once, guarded by #cleanupLock, to stop output reading, detach the child watch
 	 and close the process. Both #terminate and #beCompleted: funnel here so the cleanup never
 	 runs concurrently: previously the two threads competed for the single drainSemaphore
 	 (producing a spurious 'timed out while draining') and raced the one-shot child watch
-	 (producing a GLib-CRITICAL 'Source ID ... was not found')."
+	 (producing a GLib-CRITICAL 'Source ID ... was not found').
+	 Output is drained (up to EOF) only on the normal-completion path; on #terminate the child
+	 is killed and its remaining output is irrelevant, and waiting for EOF is unreliable on
+	 Windows where the spawn helper holds the pipe write-ends."
 
-	self outputsBeingRead ifTrue: [ self waitForOutputDrain ].
+	shouldDrain ifTrue: [ self outputsBeingRead ifTrue: [ self waitForOutputDrain ] ].
 	self stopOutputListeners.
 	process removeChildWatch.
 	process close.
@@ -277,7 +280,7 @@ SPSAsyncProcess >> terminate [
 		self isComplete ifTrue: [ ^ self ].
 		wasTerminated := true.
 		SPSProcessControl terminatePid: process pid.
-		self finalizeCleanup ].
+		self finalizeCleanupDraining: false ].
 	self announceCompleted
 ]
 
@@ -287,14 +290,12 @@ SPSAsyncProcess >> waitForOutputDrain [
 	"Let the output listeners drain the remaining bytes (up to EOF) before we close the
 	 process, so the collected/streamed output is not truncated. We use a FIXED timeout of
 	 5 seconds per channel so a stuck child can never hang completion forever; if it expires
-	 we give up draining and log a diagnostic. NOTE: Semaphore >> waitTimeoutMilliseconds:
-	 answers true when the timeout expires, false on signal."
+	 we give up draining and proceed. NOTE: Semaphore >> waitTimeoutMilliseconds: answers true
+	 when the timeout expires, false on signal."
 
 	2 timesRepeat: [
 		(self drainSemaphore waitTimeoutMilliseconds: 5000)
-			ifTrue: [
-				'SubProcess: timed out while draining process output' crTrace.
-				^ self ] ]
+			ifTrue: [ ^ self ] ]
 ]
 
 { #category : #'api - testing' }
