@@ -240,7 +240,8 @@ ASyncSubProcessTest >> testWriteToStdin [
 	self isRunningOnWindows
 		ifTrue: [ process stdInChannel writeFlush: (String with: (Character codePoint: 26)) ].
 	self probe: 'P4 post-writeFlush-ctrlz'.
-	process stdInChannel shutDown: true.
+	self isRunningOnWindows
+		ifFalse: [ process stdInChannel shutDown: true ].
 	self probe: 'P5 post-shutDown'.
 
 	self assert: (self waitForCompletionOf: process).
