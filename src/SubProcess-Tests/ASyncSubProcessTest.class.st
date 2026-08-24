@@ -226,7 +226,7 @@ ASyncSubProcessTest >> testWriteToStdin [
 	| text command |
 
 	text := 'hello stdin'.
-	command := self isRunningOnWindows ifTrue: [ 'more' ] ifFalse: [ 'cat' ].
+	command := self isRunningOnWindows ifTrue: [ 'findstr .*' ] ifFalse: [ 'cat' ].
 	process := (self newProcessConfigurationWithShellCommand: command)
 		collectsOutput;
 		async.
