@@ -227,13 +227,15 @@ ASyncSubProcessTest >> testWriteToStdin [
 
 	text := 'hello stdin'.
 	command := self isRunningOnWindows
-		ifTrue: [ 'powershell -NoProfile -Command "Write-Output ([Console]::In.ReadLine())"' ]
+		ifTrue: [ 'more' ]
 		ifFalse: [ 'cat' ].
 	process := (self newProcessConfigurationWithShellCommand: command)
 		collectsOutput;
 		async.
 	process run.
 	process stdInChannel writeFlush: text.
+	self isRunningOnWindows
+		ifTrue: [ process stdInChannel writeFlush: (String with: (Character codePoint: 26)) ].
 	process stdInChannel shutDown: true.
 
 	self assert: (self waitForCompletionOf: process).
@@ -287,6 +289,7 @@ ASyncSubProcessTest >> testShellPipe [
 ASyncSubProcessTest >> testNonAsciiArgument [
 	| dir config |
 
+	self skipIfRunningOnWindows.
 	dir := FileLocator temp / (self class name , '-éoï-' , UUID new asString).
 	dir ensureCreateDirectory.
 	[
