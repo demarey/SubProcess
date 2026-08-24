@@ -21,7 +21,7 @@ jobs:
         smalltalk:
           - Pharo64-13
         smalltalk_config: [ .smalltalk.ston ]
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        os: [ ubuntu-latest, macos-latest, windows-2022 ]
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.smalltalk }} on ${{ matrix.os }} 
     steps:
@@ -44,7 +44,14 @@ jobs:
           curl -sL https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-glib2-2.84.2-1-any.pkg.tar.zst --output glib2.pkg
           tar --zstd -xf glib2.pkg -C extracted --strip-components=2 clang64/bin/gspawn-win64-helper.exe
           export PATH="$PWD/extracted:$PATH"
-          smalltalkci --vm extracted/Pharo.exe -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }}
+          set +e
+          smalltalkci --vm extracted/Pharo.exe -v -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }} 2>&1
+          STCI_EXIT=$?
+          echo "STCHK smalltalkci exit=$STCI_EXIT"
+          echo "STCHK crash/dump artifacts:"
+          find . extracted "$HOME/.smalltalkCI" -maxdepth 3 \( -name "*.log" -o -name "core*" -o -name "*.dmp" -o -name "crash*" -o -name "*.stack" \) 2>/dev/null
+          cat extracted/PharoDebug.log 2>/dev/null
+          exit $STCI_EXIT
         if: runner.os == 'Windows'
         shell: bash
         timeout-minutes: 30
