@@ -48,13 +48,24 @@ jobs:
           smalltalkci --vm extracted/Pharo.exe -v -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }} 2>&1
           STCI_EXIT=$?
           echo "STCHK smalltalkci exit=$STCI_EXIT"
-          echo "STCHK crash/dump artifacts:"
-          find . extracted "$HOME/.smalltalkCI" -maxdepth 3 \( -name "*.log" -o -name "core*" -o -name "*.dmp" -o -name "crash*" -o -name "*.stack" \) 2>/dev/null
-          cat extracted/PharoDebug.log 2>/dev/null
+          cp "$HOME/.smalltalkCI/_builds/crash.dmp" ./crash.dmp 2>/dev/null || echo "STCHK no crash.dmp"
+          cp "$HOME/.smalltalkCI/_builds/crash.txt" ./crash.txt 2>/dev/null || true
+          cp extracted/PharoDebug.log ./PharoDebug.log 2>/dev/null || true
+          ls -la ./crash.* ./PharoDebug.log 2>/dev/null
           exit $STCI_EXIT
         if: runner.os == 'Windows'
         shell: bash
         timeout-minutes: 30
+      - name: Upload Windows crash artifacts
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-crash
+          path: |
+            crash.dmp
+            crash.txt
+            PharoDebug.log
+          if-no-files-found: ignore
       - name: Test
         run: smalltalkci -s ${{ matrix.smalltalk }} ${{ matrix.smalltalk_config }}
         if: runner.os != 'Windows'
