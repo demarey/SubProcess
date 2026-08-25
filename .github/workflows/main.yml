@@ -85,18 +85,20 @@ jobs:
           smalltalk-image: Pharo64-13
       - name: Diagnose on Windows
         run: |
+          echo "DGS setup-vm"
           curl -L https://github.com/pharo-spec/gtk-bundle-builder/releases/download/v1/pharo-vm-Windows-x86_64-gtk-stable.zip --output vm.zip
           unzip -q vm.zip -d extracted
           curl -sL https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-glib2-2.84.2-1-any.pkg.tar.zst --output glib2.pkg
           tar --zstd -xf glib2.pkg -C extracted --strip-components=2 clang64/bin/gspawn-win64-helper.exe
           export PATH="$PWD/extracted:$PATH"
+          echo "DGS run-smalltalkci"
           set +e
           smalltalkci -d --vm extracted/Pharo.exe -s Pharo64-13 .diagnose.ston 2>&1
           STCI_EXIT=$?
           echo "STCHK smalltalkci exit=$STCI_EXIT"
           exit $STCI_EXIT
         shell: bash
-        timeout-minutes: 6
+        timeout-minutes: 15
 
   # Runs the standalone GSubprocess-stdin reference experiment (written in plain
   # C, no Pharo) on both macOS and Windows to validate GIO pipe/stdin semantics.
