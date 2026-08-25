@@ -37,7 +37,6 @@ Class {
 		'errPollable',
 		'kernel32Library',
 		'winWaitHandle',
-		'debugOncePrinted',
 		'wasTerminated',
 		'cleanupLock',
 		'worker',
@@ -311,7 +310,7 @@ SPSAsyncProcess >> processIsReaped [
 
 	"Answer whether glib has reaped the child. glib clears the process identifier once its child
 	 watch fires; that watch is delivered through the main context, which #drainOutputUntilEof
-	 iterates. (Not used on Windows, where glib keeps the identifier as a process handle.)"
+	 iterates. (Not used on Windows, where glib keeps the identifier as a process id.)"
 
 	^ process notNil and: [ process pid = 0 ]
 ]
@@ -328,43 +327,17 @@ SPSAsyncProcess >> releaseWindowsHandle [
 SPSAsyncProcess >> windowsProcessHandleSignaled [
 
 	"Ask the OS (non-blocking) whether the child process has terminated. The GSubprocess
-	 identifier on Windows is the process id; a zero-timeout WaitForSingleObject on it directly is
-	 meaningless (PIDs are not wait handles), so OpenProcess a SYNCHRONIZE handle and wait on
-	 that, caching the handle across polls."
+	 identifier on Windows is the process id (not a wait handle), so OpenProcess a SYNCHRONIZE
+	 handle and wait on it (cached across polls): WaitForSingleObject answers WAIT_TIMEOUT (258)
+	 while the process runs and WAIT_OBJECT_0 (0) once it has exited. A nil handle means the
+	 process is already gone."
 
-	| pid r handle r2 |
+	| pid |
 	pid := process pid.
 	(pid isNil or: [ pid = 0 ]) ifTrue: [ ^ false ].
-	r := self kernel32Library waitForSingleObject: (ExternalAddress fromAddress: pid).
-	r = 0 ifTrue: [ self logExitSig: 'r1=0' pid: pid. ^ true ].
-	r = 258 ifTrue: [ ^ false ].
 	winWaitHandle ifNil: [ winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid ].
-	winWaitHandle isNil ifTrue: [ self logExitSig: 'open-nil' pid: pid. ^ true ].
-	r2 := self kernel32Library waitForSingleObject: winWaitHandle.
-	self logExitSig: ('r1=', r printString, ' handle=', winWaitHandle printString, ' r2=', r2 printString) pid: pid.
-	^ r2 = 0
-]
-
-{ #category : #'private - testing' }
-SPSAsyncProcess >> logExitSig: aString pid: aPid [
-
-	self debugOncePrinted ifFalse: [
-		Stdio stderr nextPutAll: 'PROC pid=', aPid printString, ' ', aString; lf; flush.
-		debugOncePrinted := true ]
-]
-
-{ #category : #'private - testing' }
-SPSAsyncProcess >> debugOncePrinted [
-
-	^ debugOncePrinted ifNil: [ false ]
-]
-
-{ #category : #'private - testing' }
-SPSAsyncProcess >> debugPrintOnce: aString [
-
-	self debugOncePrinted ifFalse: [
-		Stdio stderr nextPutAll: aString; lf; flush.
-		debugOncePrinted := true ]
+	winWaitHandle isNil ifTrue: [ ^ true ].
+	^ (self kernel32Library waitForSingleObject: winWaitHandle) = 0
 ]
 
 { #category : #'api - running' }
