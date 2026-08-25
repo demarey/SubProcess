@@ -71,3 +71,38 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         timeout-minutes: 30
+
+  # Runs the standalone GSubprocess-stdin reference experiment (written in plain
+  # C, no Pharo) on both macOS and Windows to validate GIO pipe/stdin semantics.
+  c-experiment:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, windows-2022 ]
+    runs-on: ${{ matrix.os }}
+    name: c-experiment on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install glib
+        shell: bash
+      - name: Setup MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: clang64
+          update: true
+          install: >-
+            git make pkgconf
+            mingw-w64-clang-x86_64-gcc
+            mingw-w64-clang-x86_64-glib2
+      - name: Build & run (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: make -C experiments/gprocess-stdin run
+      - name: Build & run (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: make -C experiments/gprocess-stdin run CC=clang
+
