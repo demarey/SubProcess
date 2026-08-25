@@ -78,6 +78,17 @@ GSubprocessStdinTest >> testStdinNotClosedDoesNotExit [
 	]
 ]
 
+{ #category : #helpers }
+GSubprocessStdinTest >> traceOnWindows: aString [
+
+	self isRunningOnWindows
+		ifTrue: [
+			Stdio stderr
+				nextPutAll: ('[GSubprocessStdin] ' , aString);
+				lf;
+				flush ]
+]
+
 { #category : #tests }
 GSubprocessStdinTest >> testStdinRoundTrip [
 
@@ -85,23 +96,29 @@ GSubprocessStdinTest >> testStdinRoundTrip [
 	 Mirrors the reference C experiment exactly."
 
 	| sub stdinPipe stdoutPipe out decoded expected |
-	self skipIfRunningOnWindows.
+	self traceOnWindows: 'roundTrip:start'.
 	expected := 'hello stdin'.
 	sub := self newSubprocessEchoingStdin.
 	self assert: sub notNil description: 'spawn failed'.
+	self traceOnWindows: 'roundTrip:spawned'.
+	stdinPipe := sub stdinPipe.
 	[
-		stdinPipe := sub stdinPipe.
+		self traceOnWindows: 'roundTrip:writeFlush:before'.
 		stdinPipe writeFlush: expected.
+		self traceOnWindows: 'roundTrip:writeFlush:after'.
 		stdinPipe close.
+		self traceOnWindows: 'roundTrip:close:after'.
 		sub wait.
+		self traceOnWindows: 'roundTrip:wait:after'.
 		self assert: sub successful description: 'child did not exit successfully'.
 		stdoutPipe := sub stdoutPipe.
 		out := ByteArray new writeStream.
 		stdoutPipe readAllInto: out.
+		self traceOnWindows: 'roundTrip:read:after'.
 		decoded := (out contents) decodeWith: 'utf8'.
 		self assert: (decoded includesSubstring: expected)
 	] ensure: [
 		[ stdinPipe close ] on: Error do: [  ].
-		sub release
-	]
+		sub release ].
+	self traceOnWindows: 'roundTrip:end'
 ]
