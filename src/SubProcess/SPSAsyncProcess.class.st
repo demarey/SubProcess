@@ -35,6 +35,7 @@ Class {
 		'errPending',
 		'outPollable',
 		'errPollable',
+		'kernel32Library',
 		'wasTerminated',
 		'cleanupLock',
 		'worker',
@@ -245,7 +246,7 @@ SPSAsyncProcess >> drainOutputUntilEof [
 			errEOF := errPollable and: [ self pollPipe: errStream collector: errCollector pending: errPending ] ].
 		(outEOF and: errEOF) ifFalse: [
 			ctx iteration: false.
-			(self processIsReaped)
+			(self processExited)
 				ifTrue: [ outEOF := true. errEOF := true ]
 				ifFalse: [ (Delay forMilliseconds: 2) wait ] ] ].
 	self drainRemainder.
@@ -256,22 +257,46 @@ SPSAsyncProcess >> drainOutputUntilEof [
 { #category : #'private - output' }
 SPSAsyncProcess >> drainRemainder [
 
-	"Read any bytes still buffered now that the child has exited/reaped, so a read reaches EOF
-	 without blocking the VM. Answered either into the collector or, when streaming, fed to the
-	 line block - mirroring the synchronous SPSProcess drain."
+	"Read any bytes still buffered now that the child has exited, so a read reaches EOF without
+	 blocking the VM. Fed either into the collector or, when streaming, to the line block -
+	 mirroring the synchronous SPSProcess drain."
 
-	| drain |
-	drain := [ :stream :collector :pending |
-		stream ifNotNil: [
-			[ | chunk |
-			  chunk := stream read: 4096.
-			  chunk isEmpty ] whileFalse: [
-				self shouldCollectOutput
-					ifTrue: [ collector nextPutAll: chunk ]
-					ifFalse: [ self outputLineBlock ifNotNil: [
-						pending at: 1 put: (self accumulate: (pending at: 1) with: (chunk decodeWith: self configuration encoding)) ] ] ] ] ].
-	drain value: outStream value: outCollector value: outPending.
-	drain value: errStream value: errCollector value: errPending
+	| chunk |
+	outStream ifNotNil: [
+		[ (chunk := outStream read: 4096) isEmpty ] whileFalse: [
+			self feedChunk: chunk intoCollector: outCollector pending: outPending ] ].
+	errStream ifNotNil: [
+		[ (chunk := errStream read: 4096) isEmpty ] whileFalse: [
+			self feedChunk: chunk intoCollector: errCollector pending: errPending ] ]
+]
+
+{ #category : #'private - output' }
+SPSAsyncProcess >> feedChunk: aByteArray intoCollector: aCollector pending: pendingHolder [
+
+	self shouldCollectOutput
+		ifTrue: [ aCollector nextPutAll: aByteArray ]
+		ifFalse: [ self outputLineBlock ifNotNil: [
+			pendingHolder at: 1 put: (self accumulate: (pendingHolder at: 1) with: (aByteArray decodeWith: self configuration encoding)) ] ]
+]
+
+{ #category : #'private - accessing' }
+SPSAsyncProcess >> kernel32Library [
+
+	^ kernel32Library ifNil: [ kernel32Library := SPSKernel32Library new ]
+]
+
+{ #category : #'private - testing' }
+SPSAsyncProcess >> processExited [
+
+	"Non-blocking, cross-platform test for whether the child OS process has exited. On Windows
+	 glib does not lower the subprocess identifier on reap the way it does on unix, so we ask the
+	 OS directly: the GSubprocess identifier there is the process handle and a zero-timeout
+	 WaitForSingleObject reports exit immediately. Elsewhere we rely on glib having reaped the
+	 child after #drainOutputUntilEof iterated the main context."
+
+	^ OSPlatform current isWindows
+		ifTrue: [ self windowsProcessHandleSignaled ]
+		ifFalse: [ self processIsReaped ]
 ]
 
 { #category : #'private - testing' }
@@ -279,10 +304,22 @@ SPSAsyncProcess >> processIsReaped [
 
 	"Answer whether glib has reaped the child. glib clears the process identifier once its child
 	 watch fires; that watch is delivered through the main context, which #drainOutputUntilEof
-	 iterates. This is the reliable cross-platform non-blocking completion signal (the pipes may
-	 not be pollable on Windows)."
+	 iterates. (Not used on Windows, where glib keeps the identifier as a process handle.)"
 
 	^ process notNil and: [ process pid = 0 ]
+]
+
+{ #category : #'private - testing' }
+SPSAsyncProcess >> windowsProcessHandleSignaled [
+
+	"Ask the OS (non-blocking) whether the child process has terminated. The GSubprocess
+	 identifier on Windows is the process handle."
+
+	| handle |
+	handle := process pid.
+	^ (handle isNil or: [ handle = 0 ])
+		ifTrue: [ false ]
+		ifFalse: [ (self kernel32Library waitForSingleObject: (ExternalAddress fromAddress: handle)) = 0 ]
 ]
 
 { #category : #'api - running' }
