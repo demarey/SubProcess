@@ -72,6 +72,32 @@ jobs:
         shell: bash
         timeout-minutes: 30
 
+  # TEMPORARY: fast Windows loop to pinpoint the GSubprocessStdinTest deadlock.
+  # Runs only GSubprocessStdinTest with a short timeout so the freeze (and the
+  # last STDERR trace before it) surfaces in ~6 minutes instead of 30.
+  c-diagnose-windows:
+    runs-on: windows-2022
+    name: c-diagnose-windows
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hpi-swa/setup-smalltalkCI@v1
+        with:
+          smalltalk-image: Pharo64-13
+      - name: Diagnose on Windows
+        run: |
+          curl -L https://github.com/pharo-spec/gtk-bundle-builder/releases/download/v1/pharo-vm-Windows-x86_64-gtk-stable.zip --output vm.zip
+          unzip -q vm.zip -d extracted
+          curl -sL https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-glib2-2.84.2-1-any.pkg.tar.zst --output glib2.pkg
+          tar --zstd -xf glib2.pkg -C extracted --strip-components=2 clang64/bin/gspawn-win64-helper.exe
+          export PATH="$PWD/extracted:$PATH"
+          set +e
+          smalltalkci -d --vm extracted/Pharo.exe -s Pharo64-13 .diagnose.ston 2>&1
+          STCI_EXIT=$?
+          echo "STCHK smalltalkci exit=$STCI_EXIT"
+          exit $STCI_EXIT
+        shell: bash
+        timeout-minutes: 6
+
   # Runs the standalone GSubprocess-stdin reference experiment (written in plain
   # C, no Pharo) on both macOS and Windows to validate GIO pipe/stdin semantics.
   c-experiment:
