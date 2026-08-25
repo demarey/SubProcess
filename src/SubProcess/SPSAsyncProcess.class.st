@@ -37,6 +37,7 @@ Class {
 		'errPollable',
 		'kernel32Library',
 		'winWaitHandle',
+		'debugOncePrinted',
 		'wasTerminated',
 		'cleanupLock',
 		'worker',
@@ -65,7 +66,10 @@ SPSAsyncProcess >> cleanupAndComplete [
 		self isComplete ifTrue: [ ^ self ].
 		self wasTerminated
 			ifTrue: [ exitCode := nil ]
-			ifFalse: [ exitCode := [ process exitStatus ] on: Error do: [ nil ] ].
+			ifFalse: [
+				exitCode := [ process exitStatus ]
+					on: Error
+					do: [ :err | self debugPrintOnce: 'PROC exitStatus ERROR: ', err printString. nil ] ].
 		[ process release ] on: Error do: [  ].
 		process := nil.
 		self releaseWindowsHandle.
@@ -328,16 +332,39 @@ SPSAsyncProcess >> windowsProcessHandleSignaled [
 	 WAIT_OBJECT_0 (gone / 0), WAIT_TIMEOUT (running / 258), or fails (invalid handle, meaning the
 	 value is a pid), in which case we OpenProcess it and wait on the resulting handle."
 
-	| pid r |
+	| pid r raw dbg |
 	pid := process pid.
 	(pid isNil or: [ pid = 0 ]) ifTrue: [ ^ false ].
+	raw := process gGetIdentifier.
+	self debugPrintOnce: (
+		'PROC pid=', pid printString,
+		' id=', raw printString,
+		' idStr=', (raw ifNotNil: [ raw asString ]) printString).
 	r := self kernel32Library waitForSingleObject: (ExternalAddress fromAddress: pid).
+	self debugPrintOnce: 'PROC r1=', r printString.
 	r = 0 ifTrue: [ ^ true ].
 	r = 258 ifTrue: [ ^ false ].
 	winWaitHandle ifNil: [
-		winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid ].
+		winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid.
+		self debugPrintOnce: 'PROC h=', winWaitHandle printString ].
 	winWaitHandle isNil ifTrue: [ ^ true ].
-	^ (self kernel32Library waitForSingleObject: winWaitHandle) = 0
+	dbg := self kernel32Library waitForSingleObject: winWaitHandle.
+	self debugPrintOnce: 'PROC r2=', dbg printString.
+	^ dbg = 0
+]
+
+{ #category : #'private - testing' }
+SPSAsyncProcess >> debugOncePrinted [
+
+	^ debugOncePrinted ifNil: [ false ]
+]
+
+{ #category : #'private - testing' }
+SPSAsyncProcess >> debugPrintOnce: aString [
+
+	self debugOncePrinted ifFalse: [
+		Stdio stdout nextPutAll: aString; lf; flush.
+		debugOncePrinted := true ]
 ]
 
 { #category : #'api - running' }
