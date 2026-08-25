@@ -33,6 +33,8 @@ Class {
 		'errCollector',
 		'outPending',
 		'errPending',
+		'outPollable',
+		'errPollable',
 		'wasTerminated',
 		'cleanupLock',
 		'worker',
@@ -223,12 +225,13 @@ SPSAsyncProcess >> pollPipe: aStream collector: aCollector pending: pendingHolde
 { #category : #'private - output' }
 SPSAsyncProcess >> drainOutputUntilEof [
 
-	"Poll stdout and stderr non-blocking until both reach EOF (which happens once the child
-	 has exited and closed its pipes). Never blocks the whole VM on a concurrent read while the
-	 user, e.g., writes to stdin, and cannot deadlock on a full pipe. Iterates the default
-	 GMainContext so glib can advance its own machinery (child watch reaping and, on Windows,
-	 the pollable-stream read completions that are only delivered through the main loop); this
-	 is what lets EOF be signalled reliably on every platform."
+	"Poll stdout and stderr until both reach EOF without ever blocking the VM for long
+	 (which would freeze a concurrent writer to stdin or a timeout in the single-threaded
+	 FFI). On streams that are pollable (unix) we read non-blocking, so we get EOF as soon as
+	 the child closes its pipes. On Windows the GSubprocess pipes are not pollable, so instead
+	 we iterate the default GMainContext until glib reaps the child (pid becomes 0 - the child
+	 watch is only delivered through the main loop) and then do a short synchronous drain to
+	 EOF, which cannot block because the child has already exited."
 
 	| outEOF errEOF ctx |
 	self setupOutputStreams.
@@ -236,13 +239,50 @@ SPSAsyncProcess >> drainOutputUntilEof [
 	outEOF := false.
 	errEOF := false.
 	[ outEOF and: errEOF ] whileFalse: [
-		outEOF ifFalse: [ outEOF := self pollPipe: outStream collector: outCollector pending: outPending ].
-		errEOF ifFalse: [ errEOF := self pollPipe: errStream collector: errCollector pending: errPending ].
+		outEOF ifFalse: [
+			outEOF := outPollable and: [ self pollPipe: outStream collector: outCollector pending: outPending ] ].
+		errEOF ifFalse: [
+			errEOF := errPollable and: [ self pollPipe: errStream collector: errCollector pending: errPending ] ].
 		(outEOF and: errEOF) ifFalse: [
 			ctx iteration: false.
-			(Delay forMilliseconds: 2) wait ] ].
+			(self processIsReaped)
+				ifTrue: [ outEOF := true. errEOF := true ]
+				ifFalse: [ (Delay forMilliseconds: 2) wait ] ] ].
+	self drainRemainder.
 	[ process wait ] on: Error do: [  ].
 	self finalizeOutput
+]
+
+{ #category : #'private - output' }
+SPSAsyncProcess >> drainRemainder [
+
+	"Read any bytes still buffered now that the child has exited/reaped, so a read reaches EOF
+	 without blocking the VM. Answered either into the collector or, when streaming, fed to the
+	 line block - mirroring the synchronous SPSProcess drain."
+
+	| drain |
+	drain := [ :stream :collector :pending |
+		stream ifNotNil: [
+			[ | chunk |
+			  chunk := stream read: 4096.
+			  chunk isEmpty ] whileFalse: [
+				self shouldCollectOutput
+					ifTrue: [ collector nextPutAll: chunk ]
+					ifFalse: [ self outputLineBlock ifNotNil: [
+						pending at: 1 put: (self accumulate: (pending at: 1) with: (chunk decodeWith: self configuration encoding)) ] ] ] ] ].
+	drain value: outStream value: outCollector value: outPending.
+	drain value: errStream value: errCollector value: errPending
+]
+
+{ #category : #'private - testing' }
+SPSAsyncProcess >> processIsReaped [
+
+	"Answer whether glib has reaped the child. glib clears the process identifier once its child
+	 watch fires; that watch is delivered through the main context, which #drainOutputUntilEof
+	 iterates. This is the reliable cross-platform non-blocking completion signal (the pipes may
+	 not be pollable on Windows)."
+
+	^ process notNil and: [ process pid = 0 ]
 ]
 
 { #category : #'api - running' }
@@ -321,6 +361,8 @@ SPSAsyncProcess >> setupOutputStreams [
 
 	outStream := process stdoutPipe.
 	errStream := process stderrPipe.
+	outPollable := [ outStream canPoll ] on: Error do: [ false ].
+	errPollable := [ errStream canPoll ] on: Error do: [ false ].
 	self shouldCollectOutput
 		ifTrue: [
 			outCollector := WriteStream on: ByteArray new.
