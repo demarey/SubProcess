@@ -225,16 +225,22 @@ SPSAsyncProcess >> drainOutputUntilEof [
 
 	"Poll stdout and stderr non-blocking until both reach EOF (which happens once the child
 	 has exited and closed its pipes). Never blocks the whole VM on a concurrent read while the
-	 user, e.g., writes to stdin, and cannot deadlock on a full pipe."
+	 user, e.g., writes to stdin, and cannot deadlock on a full pipe. Iterates the default
+	 GMainContext so glib can advance its own machinery (child watch reaping and, on Windows,
+	 the pollable-stream read completions that are only delivered through the main loop); this
+	 is what lets EOF be signalled reliably on every platform."
 
-	| outEOF errEOF |
+	| outEOF errEOF ctx |
 	self setupOutputStreams.
+	ctx := GMainContext default.
 	outEOF := false.
 	errEOF := false.
 	[ outEOF and: errEOF ] whileFalse: [
 		outEOF ifFalse: [ outEOF := self pollPipe: outStream collector: outCollector pending: outPending ].
 		errEOF ifFalse: [ errEOF := self pollPipe: errStream collector: errCollector pending: errPending ].
-		(outEOF and: errEOF) ifFalse: [ (Delay forMilliseconds: 2) wait ] ].
+		(outEOF and: errEOF) ifFalse: [
+			ctx iteration: false.
+			(Delay forMilliseconds: 2) wait ] ].
 	[ process wait ] on: Error do: [  ].
 	self finalizeOutput
 ]
