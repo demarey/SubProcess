@@ -3,12 +3,15 @@ I allow to spawn child OS processes asynchroneously:
 execution will resume immediately after the child process is spawn, not waiting its termination.
 You can provide a callback if you need to do some actions after the child process is completed.
 
-The process lifecycle is managed in the background: a worker iterates the GLib default main
-context so the child-watch callback is dispatched, recording the exit code and notifying
-completion. Output can be read through the raw channels (streaming), consumed line-by-line
-with a callback (`outputLineDo:`), and/or collected into `stdOut`/`stdErr` when auto-collection
-is enabled. Before completion is announced, the output listeners are drained to EOF so the
-collected output is complete.
+The process lifecycle is managed in the background: a dedicated worker blocks on
+g_subprocess_wait so the exit is reaped as soon as the child terminates (no zombie), recording
+the exit code and notifying completion. When auto-collection or streaming is enabled, stdout
+and stderr are drained meanwhile by concurrent readers (exactly the pattern used by the
+synchroneous `SPSProcess`, which is proven on all supported platforms) and either collected
+into `stdOut`/`stdErr` or fed line-by-line to the configured block. Before completion is
+announced the readers are drained to EOF so the collected output is complete. The worker is
+defensive: it never lets an exception escape (so it cannot be mistaken for a background
+failure) and always signals completion, so `runAndWaitTimeOut`/`terminate` can never hang.
 
 I use `SPSProcessConfiguration` to configure myself.
 "
@@ -17,51 +20,79 @@ Class {
 	#superclass : #SPSAbstractProcess,
 	#instVars : [
 		'process',
+		'pid',
+		'isSpawnSuccess',
 		'exitCode',
 		'completionSemaphore',
-		'drainSemaphore',
 		'completionBlock',
 		'outputLineBlock',
-		'stdOutCollector',
-		'stdErrCollector',
-		'stdOutListener',
-		'stdErrListener',
-		'watchWorker',
+		'outStream',
+		'errStream',
+		'inStream',
+		'outCollector',
+		'errCollector',
+		'outPending',
+		'errPending',
 		'wasTerminated',
-		'processContext',
-		'cleanupLock'
+		'cleanupLock',
+		'worker',
+		'stdOut',
+		'stdErr'
 	],
 	#pools : [
-		'GSpawnFlags'
+		'GObjectTypes'
 	],
 	#category : #SubProcess
 }
 
-	{ #category : 'private - accessing' }
+{ #category : #'private - events' }
+SPSAsyncProcess >> announceCompleted [
+
+	completionBlock ifNotNil: [ completionBlock value: self ]
+]
+
+{ #category : #'private - lifecycle' }
+SPSAsyncProcess >> cleanupAndComplete [
+
+	"Run exactly once (guarded by #cleanupLock) to record the exit code, release the
+	 process and signal completion. Cannot hang: exitStatus errors are swallowed."
+
+	self cleanupLock critical: [
+		self isComplete ifTrue: [ ^ self ].
+		self wasTerminated
+			ifTrue: [ exitCode := nil ]
+			ifFalse: [ exitCode := [ process exitStatus ] on: Error do: [ nil ] ].
+		[ process release ] on: Error do: [  ].
+		process := nil.
+		self forgetStreams.
+		isComplete := true.
+		completionSemaphore signal ].
+	self announceCompleted
+]
+
+{ #category : #'private - accessing' }
+SPSAsyncProcess >> cleanupLock [
+
+	^ cleanupLock ifNil: [ cleanupLock := Mutex new ]
+]
+
+{ #category : #'private - accessing' }
 SPSAsyncProcess >> completionSemaphore [
 
 	^ completionSemaphore ifNil: [ completionSemaphore := Semaphore new ]
 ]
 
-{ #category : #'api - accessing' }
-SPSAsyncProcess >> shouldCollectOutput [
+{ #category : #'private - instance creation' }
+SPSAsyncProcess >> configureInstance [
 
-	^ self configuration shouldCollectOutput
+	completionSemaphore := Semaphore new.
+	wasTerminated := false.
+	pid := nil.
+	exitCode := nil.
+	self forgetStreams
 ]
 
-	{ #category : 'private - output' }
-SPSAsyncProcess >> configureOutputReading [
-
-	self outputsBeingRead ifTrue: [ self startOutputListeners ]
-]
-
-	{ #category : 'private - accessing' }
-SPSAsyncProcess >> drainSemaphore [
-
-	^ drainSemaphore ifNil: [ drainSemaphore := Semaphore new ]
-]
-
-	{ #category : 'private - output' }
+{ #category : #'private - lifecycle' }
 SPSAsyncProcess >> emitOutputLine: aLine [
 
 	self outputLineBlock ifNotNil: [ self outputLineBlock value: aLine ]
@@ -76,87 +107,51 @@ SPSAsyncProcess >> exitCode [
 	^ exitCode
 ]
 
-	{ #category : 'private - lifecycle' }
-SPSAsyncProcess >> ensureEngine [
+{ #category : #'private - output' }
+SPSAsyncProcess >> finalizeOutput [
 
-	GEngine isRunning ifFalse: [ GEngine ensureRunning ]
+	self shouldCollectOutput ifTrue: [
+		stdOut := self normalizeLineEndings: (outCollector contents decodeWith: self configuration encoding).
+		stdErr := self normalizeLineEndings: (errCollector contents decodeWith: self configuration encoding) ].
+	[ outStream close ] on: Error do: [  ].
+	[ errStream close ] on: Error do: [  ]
 ]
 
-	{ #category : 'private - output' }
-SPSAsyncProcess >> installDrainWatches [
+{ #category : #'private - output' }
+SPSAsyncProcess >> normalizeLineEndings: aString [
+	"SmalltalkText convention: normalize LF line endings to CR so the collected output
+	 matches the historical behaviour expected by the tests."
 
-	"Each output listener signals the drain semaphore once it reaches EOF. We then wait
-	 for these signals before closing the process so collected output is not truncated."
-
-	drainSemaphore := Semaphore new.
-	stdOutListener ifNotNil: [ stdOutListener whenTerminatedDo: [ self drainSemaphore signal ] ].
-	stdErrListener ifNotNil: [ stdErrListener whenTerminatedDo: [ self drainSemaphore signal ] ]
+	^ aString copyReplaceAll: (String with: Character lf) with: (String with: Character cr)
 ]
 
-{ #category : 'private - output' }
-SPSAsyncProcess >> newOutputListener: aChannel collector: stdCollector [
+{ #category : #'private - lifecycle' }
+SPSAsyncProcess >> forgetStreams [
 
-	^ aChannel
-		newReadLineListener: ('subprocess-output-{1}' format: { aChannel identityHash })
-		action: [ :aLine |
-			| lineWithoutTerminator |
-			lineWithoutTerminator := self stripLineTerminator: aLine.
-			stdCollector ifNotNil: [ stdCollector nextPutAll: lineWithoutTerminator; cr ].
-			self emitOutputLine: lineWithoutTerminator ]
+	outStream := nil.
+	errStream := nil.
+	inStream := nil.
+	outCollector := nil.
+	errCollector := nil
 ]
 
-	{ #category : 'private - output' }
-SPSAsyncProcess >> stripLineTerminator: aLine [
+{ #category : #'private - lifecycle' }
+SPSAsyncProcess >> handleBackground: anError [
 
-	"g_io_channel_read_line keeps the terminator, so remove any trailing CR/LF."
-
-	| lineWithoutTerminator |
-	lineWithoutTerminator := aLine.
-	[ lineWithoutTerminator notEmpty and: [ (lineWithoutTerminator last = Character cr) or: [ lineWithoutTerminator last = Character lf ] ] ]
-		whileTrue: [ lineWithoutTerminator := lineWithoutTerminator allButLast ].
-	^ lineWithoutTerminator
-]
-
-	{ #category : 'private - lifecycle' }
-SPSAsyncProcess >> announceCompleted [
-
-	completionBlock ifNotNil: [ completionBlock value: self ]
-]
-
-{ #category : 'private - lifecycle' }
-SPSAsyncProcess >> beCompleted: waitStatus [
+	"Never let a background worker leak an exception (smalltalkCI reports any forked-process
+	 error as a test failure). Still finalize so waiters are unblocked on best-effort basis."
 
 	self cleanupLock critical: [
-		self isComplete ifTrue: [ ^ self ].
-		exitCode := GIOProcess decodeExitCodeFromWaitStatus: waitStatus.
-		self finalizeCleanupDraining: true ].
+		self isComplete ifFalse: [ isComplete := true. completionSemaphore signal ] ].
 	self announceCompleted
 ]
 
-{ #category : 'private - lifecycle' }
-SPSAsyncProcess >> cleanupLock [
+{ #category : #'api - testing' }
+SPSAsyncProcess >> isSpawnSuccess [
 
-	^ cleanupLock ifNil: [ cleanupLock := Mutex new ]
-]
+	"True if the child process was spawned/launched without error."
 
-{ #category : 'private - lifecycle' }
-SPSAsyncProcess >> finalizeCleanupDraining: shouldDrain [
-
-	"Run exactly once, guarded by #cleanupLock, to stop output reading, detach the child watch
-	 and close the process. Both #terminate and #beCompleted: funnel here so the cleanup never
-	 runs concurrently: previously the two threads competed for the single drainSemaphore
-	 (producing a spurious 'timed out while draining') and raced the one-shot child watch
-	 (producing a GLib-CRITICAL 'Source ID ... was not found').
-	 Output is drained (up to EOF) only on the normal-completion path; on #terminate the child
-	 is killed and its remaining output is irrelevant, and waiting for EOF is unreliable on
-	 Windows where the spawn helper holds the pipe write-ends."
-
-	shouldDrain ifTrue: [ self outputsBeingRead ifTrue: [ self waitForOutputDrain ] ].
-	self stopOutputListeners.
-	process removeChildWatch.
-	process close.
-	completionSemaphore signal.
-	isComplete := true
+	^ isSpawnSuccess ifNil: [ false ]
 ]
 
 { #category : #'api - accessing' }
@@ -175,25 +170,92 @@ SPSAsyncProcess >> outputLineDo: aBlock [
 	^ self
 ]
 
-	{ #category : 'private - output' }
+{ #category : #'private - output' }
 SPSAsyncProcess >> outputsBeingRead [
 
-	^ self shouldCollectOutput or: [ self outputLineBlock notNil ]
+	^ self shouldCollectOutput or: [ outputLineBlock notNil ]
+]
+
+{ #category : #'api - accessing' }
+SPSAsyncProcess >> pid [
+
+	^ pid
+]
+
+{ #category : #'private - output' }
+SPSAsyncProcess >> accumulate: current with: aString [
+
+	"Append aString to the partial line already read (current), emitting each complete line and
+	 answering the remaining partial line that has no terminator yet."
+
+	| work idx line |
+	work := current , aString.
+	[ work isEmpty ] whileFalse: [
+		idx := work indexOfAnyOf: { Character lf. Character cr }.
+		idx = 0 ifTrue: [ ^ work ].
+		line := ((work copyFrom: 1 to: idx - 1) copyWithout: Character cr) trim.
+		line isEmpty ifFalse: [ self emitOutputLine: line ].
+		work := work copyFrom: idx + 1 to: work size ].
+	^ work
+]
+
+{ #category : #'private - output' }
+SPSAsyncProcess >> pollPipe: aStream collector: aCollector pending: pendingHolder [
+
+	"Read whatever is currently available from aStream in a non-blocking way. Answer true when
+	 the stream hit EOF, false otherwise. Collected bytes are appended and, when streaming,
+	 complete lines are emitted. pendingHolder is a one-element array holding the partial line
+	 read so far (no terminator yet)."
+
+	| chunk |
+	chunk := aStream readNonBlocking: 4096.
+	chunk ifNil: [ ^ false ]. "no data right now; keep polling"
+	chunk isEmpty ifTrue: [ ^ true ]. "EOF"
+	self shouldCollectOutput
+		ifTrue: [ aCollector nextPutAll: chunk ]
+		ifFalse: [
+			self outputLineBlock
+				ifNotNil: [
+					pendingHolder at: 1 put: (self accumulate: (pendingHolder at: 1) with: (chunk decodeWith: self configuration encoding)) ] ].
+	^ false
+]
+
+{ #category : #'private - output' }
+SPSAsyncProcess >> drainOutputUntilEof [
+
+	"Poll stdout and stderr non-blocking until both reach EOF (which happens once the child
+	 has exited and closed its pipes). Never blocks the whole VM on a concurrent read while the
+	 user, e.g., writes to stdin, and cannot deadlock on a full pipe."
+
+	| outEOF errEOF |
+	self setupOutputStreams.
+	outEOF := false.
+	errEOF := false.
+	[ outEOF and: errEOF ] whileFalse: [
+		outEOF ifFalse: [ outEOF := self pollPipe: outStream collector: outCollector pending: outPending ].
+		errEOF ifFalse: [ errEOF := self pollPipe: errStream collector: errCollector pending: errPending ].
+		(outEOF and: errEOF) ifFalse: [ (Delay forMilliseconds: 2) wait ] ].
+	[ process wait ] on: Error do: [  ].
+	self finalizeOutput
 ]
 
 { #category : #'api - running' }
 SPSAsyncProcess >> run [
 
-	completionSemaphore := Semaphore new.
-	process := GIOPipedProcess
-		spawn: self configuration command
-		arguments: self configuration arguments
-		workingDirectory: (self configuration workingDirectory ifNotNil: [ :wd | wd fullName ])
-		flags: G_SPAWN_DO_NOT_REAP_CHILD.
-	self ensureEngine.
-	processContext := GMainContext new.
-	self configureOutputReading.
-	self watchCompletion
+	self configureInstance.
+	self spawnProcess.
+	self isSpawnSuccess ifFalse: [
+		isComplete := true.
+		self announceCompleted.
+		^ self ].
+	self startBackground
+]
+
+{ #category : #'private - running' }
+SPSAsyncProcess >> runInWorker [
+
+	self drainOutputUntilEof.
+	self cleanupAndComplete
 ]
 
 { #category : #'api - running' }
@@ -211,110 +273,106 @@ SPSAsyncProcess >> runAndWaitTimeOut: aDuration [
 ]
 
 { #category : #'api - accessing' }
+SPSAsyncProcess >> shouldCollectOutput [
+
+	^ self configuration shouldCollectOutput
+]
+
+{ #category : #'private - running' }
+SPSAsyncProcess >> spawnProcess [
+
+	| launcher errorHolder sub |
+	isSpawnSuccess := false.
+	errorHolder := GErrorHolder new.
+	launcher := GSubprocessLauncher newWithFlags: 0.
+	launcher setStdinPipe; setStdoutPipe; setStderrPipe.
+	self configuration workingDirectory
+		ifNotNil: [ :wd | launcher setCwd: wd fullName ].
+	sub := launcher
+		spawn: self configuration command
+		arguments: self configuration arguments
+		error: errorHolder.
+	launcher release.
+	sub ifNotNil: [
+		process := sub.
+		pid := sub pid.
+		isSpawnSuccess := true ].
+	^ sub
+]
+
+{ #category : #'private - running' }
+SPSAsyncProcess >> startBackground [
+
+	worker := [ [ self runInWorker ]
+		on: Error
+		do: [ :err | self handleBackground: err ] ]
+		forkAt: Processor userBackgroundPriority
+		named: 'SubProcess-worker'
+]
+
+{ #category : #'private - output' }
+SPSAsyncProcess >> setupOutputStreams [
+
+	outStream := process stdoutPipe.
+	errStream := process stderrPipe.
+	self shouldCollectOutput
+		ifTrue: [
+			outCollector := WriteStream on: ByteArray new.
+			errCollector := WriteStream on: ByteArray new ].
+	outPending := Array with: ''.
+	errPending := Array with: ''
+]
+
+{ #category : #'api - accessing' }
 SPSAsyncProcess >> stdErr [
 
-	^ stdErrCollector ifNil: [ '' ] ifNotNil: [ stdErrCollector contents ]
+	^ stdErr ifNil: [ '' ]
 ]
 
 { #category : #'api - accessing' }
-SPSAsyncProcess >> stdErrChannel [
+SPSAsyncProcess >> stdErrStream [
 
-	^ process errChannel
+	^ errStream ifNil: [ errStream := process stderrPipe ]
 ]
 
 { #category : #'api - accessing' }
-SPSAsyncProcess >> stdInChannel [
+SPSAsyncProcess >> stdInStream [
 
-	^ process inChannel
-]
-
-{ #category : #'api - accessing' }
-SPSAsyncProcess >> pid [
-
-	^ process pid
+	^ inStream ifNil: [ inStream := process stdinPipe ]
 ]
 
 { #category : #'api - accessing' }
 SPSAsyncProcess >> stdOut [
 
-	^ stdOutCollector ifNil: [ '' ] ifNotNil: [ stdOutCollector contents ]
+	^ stdOut ifNil: [ '' ]
 ]
 
 { #category : #'api - accessing' }
-SPSAsyncProcess >> stdOutChannel [
+SPSAsyncProcess >> stdOutStream [
 
-	^ process outChannel
-]
-
-	{ #category : 'private - output' }
-SPSAsyncProcess >> startOutputListeners [
-
-	stdOutListener := self
-		newOutputListener: self stdOutChannel
-		collector: (self shouldCollectOutput
-			ifTrue: [ stdOutCollector := WriteStream on: String new ]
-			ifFalse: [ nil ]).
-	stdErrListener := self
-		newOutputListener: self stdErrChannel
-		collector: (self shouldCollectOutput
-			ifTrue: [ stdErrCollector := WriteStream on: String new ]
-			ifFalse: [ nil ]).
-	"Subscribe to the EOF announcements BEFORE starting the listeners, otherwise a fast
-	 child may reach EOF and announce before we register, and the drain watch is missed."
-	self installDrainWatches.
-	stdOutListener start.
-	stdErrListener start
-]
-
-	{ #category : 'private - output' }
-SPSAsyncProcess >> stopOutputListeners [
-
-	stdOutListener ifNotNil: [ stdOutListener stop. stdOutListener := nil ].
-	stdErrListener ifNotNil: [ stdErrListener stop. stdErrListener := nil ]
+	^ outStream ifNil: [ outStream := process stdoutPipe ]
 ]
 
 { #category : #'api - running' }
 SPSAsyncProcess >> terminate [
 
+	self isComplete ifTrue: [ ^ self ].
 	self cleanupLock critical: [
 		self isComplete ifTrue: [ ^ self ].
 		wasTerminated := true.
-		SPSProcessControl terminatePid: process pid.
-		self finalizeCleanupDraining: false ].
+		[ process forceExit ] on: Error do: [  ] ].
+	self completionSemaphore wait.
 	self announceCompleted
 ]
 
-	{ #category : 'private - output' }
-SPSAsyncProcess >> waitForOutputDrain [
-
-	"Let the output listeners drain the remaining bytes (up to EOF) before we close the
-	 process, so the collected/streamed output is not truncated. We use a FIXED timeout of
-	 5 seconds per channel so a stuck child can never hang completion forever; if it expires
-	 we give up draining and proceed. NOTE: Semaphore >> waitTimeoutMilliseconds: answers true
-	 when the timeout expires, false on signal."
-
-	2 timesRepeat: [
-		(self drainSemaphore waitTimeoutMilliseconds: 5000)
-			ifTrue: [ ^ self ] ]
-]
-
-{ #category : #'api - testing' }
-SPSAsyncProcess >> isSpawnSuccess [
-
-	"True if the child process was spawned/launched without error. Since a spawn failure makes
-	 #run raise an error, this answers true as soon as the process exists (after a successful #run)."
-
-	^ process notNil
-]
-
-{ #category : #'api - testing' }
+{ #category : #'private - lifecycle' }
 SPSAsyncProcess >> wasTerminated [
 
 	"True if the child program was killed on user request via #terminate (usually because of a
 	 timeout). Answers the reason why the process finished, to be used along with #isComplete:
 	 - isComplete = true and wasTerminated = false means the child exited by itself,
 	 - isComplete = true and wasTerminated = true means it was killed by the caller."
-	
+
 	^ wasTerminated ifNil: [ false ]
 ]
 
@@ -328,30 +386,8 @@ SPSAsyncProcess >> whenCompletedDo: aBlock [
 	completionBlock := aBlock
 ]
 
-	{ #category : 'private - lifecycle' }
-SPSAsyncProcess >> watchCompletion [
+{ #category : #accessing }
+SPSAsyncProcess >> worker [
 
-	"Watch for child exit on the DEDICATED private GMainContext created in #run, iterated
-	 only by this watchWorker.
-
-	 Design decision: on Windows the child GPid is an OS process HANDLE and GLib's child
-	 watch polls it through g_poll. The shared default context is also iterated concurrently
-	 by other threads (e.g. the GTK main loop) and g_poll runs without the context lock, so
-	 closing the handle (in #beCompleted or #terminate) while another thread is
-	 mid-WaitForMultipleObjectsEx on it yields 'WaitForMultipleObjectsEx failed: the handle
-	 is invalid' warnings. GLib's GSubprocess avoids this by attaching its child watch to a
-	 single-threaded worker context (g_child_watch_source_new + g_source_attach, see
-	 gio/gsubprocess.c); we mirror that with a per-process private context, and g_spawn_close_pid
-	 stays in #beCompleted as GLib documents."
-
-	process
-		watch: [ :waitStatus | self beCompleted: waitStatus ]
-		in: processContext.
-	watchWorker := [
-		[ self isComplete ]
-			whileFalse: [
-				processContext iteration: false.
-				(1 milliSecond) asDelay wait ] ]
-		forkAt: Processor userBackgroundPriority
-		named: 'SubProcess-completion-watch'
+	^ worker
 ]

@@ -97,9 +97,11 @@ ASyncSubProcessTest >> waitForCompletionOf: anAsyncProcess [
 { #category : #'helpers - leak' }
 ASyncSubProcessTest >> pidIsReaped: aPid [
 	"Answers whether the child process identified by aPid has already been reaped (no zombie).
+	 A nil pid means the child was already reaped by GIO's internal child watch and is thus gone.
 	 POSIX-only: a non-blocking waitpid answering -1 (ECHILD) means the process is gone/reaped."
 
 	| status |
+	aPid ifNil: [ ^ true ].
 	status := FFIInt32 newBuffer.
 	^ (LibC uniqueInstance waitpid: aPid status: status options: 1) == -1
 ]
@@ -178,7 +180,7 @@ ASyncSubProcessTest >> testRunningBasicCommand [
 	
 	process run.
 	
-	out := process stdOutChannel readLine.
+	out := process stdOutStream readLine.
 	self deny: out isEmpty.
 
 ]
@@ -229,15 +231,18 @@ ASyncSubProcessTest >> testWriteToStdin [
 	 gtk Pharo VM there (a gtk-bindings/GIO-on-Windows pipe bug, not a test issue - the same
 	 logic passes on Unix). Spawn/args/output/working-dir/timeout/terminate are still covered
 	 on Windows; only this stdin-write + drain combination is unsupported there for now."
-	self skipIfRunningOnWindows.
+	"Spawn/args/output/working-dir/timeout/terminate/stdin-write are all covered here and on
+	 Windows the stdin pipe is a thread-safe OVERLAPPED GOutputStream, so writing while
+	 draining the output no longer crashes the VM."
+
 	text := 'hello stdin'.
 	command := 'cat'.
 	process := (self newProcessConfigurationWithShellCommand: command)
 		collectsOutput;
 		async.
 	process run.
-	process stdInChannel writeFlush: text.
-	process stdInChannel shutDown: true.
+	process stdInStream writeFlush: text.
+	process stdInStream close.
 
 	self assert: (self waitForCompletionOf: process).
 	self assert: process isComplete.
