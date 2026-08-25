@@ -69,7 +69,7 @@ SPSAsyncProcess >> cleanupAndComplete [
 			ifFalse: [
 				exitCode := [ process exitStatus ]
 					on: Error
-					do: [ :err | Stdio stdout nextPutAll: 'PROC exitStatus ERROR: ', err printString; lf; flush. nil ] ].
+					do: [ :err | Stdio stderr nextPutAll: 'PROC exitStatus ERROR: ', err printString; lf; flush. nil ] ].
 		[ process release ] on: Error do: [  ].
 		process := nil.
 		self releaseWindowsHandle.
@@ -150,6 +150,7 @@ SPSAsyncProcess >> handleBackground: anError [
 	"Never let a background worker leak an exception (smalltalkCI reports any forked-process
 	 error as a test failure). Still finalize so waiters are unblocked on best-effort basis."
 
+	Stdio stderr nextPutAll: 'PROC handleBackground ERROR: ', anError printString, ' :: ', anError longDescription; lf; flush.
 	self cleanupLock critical: [
 		self isComplete ifFalse: [ isComplete := true. completionSemaphore signal ] ].
 	self announceCompleted
@@ -256,7 +257,7 @@ SPSAsyncProcess >> drainOutputUntilEof [
 				ifTrue: [ outEOF := true. errEOF := true ]
 				ifFalse: [ (Delay forMilliseconds: 2) wait ] ] ].
 	self drainRemainder.
-	[ process wait ] on: Error do: [ :err | Stdio stdout nextPutAll: 'PROC wait ERROR: ', err printString; lf; flush ].
+	[ process wait ] on: Error do: [ :err | Stdio stderr nextPutAll: 'PROC wait ERROR: ', err printString; lf; flush ].
 	self finalizeOutput
 ]
 
@@ -348,7 +349,7 @@ SPSAsyncProcess >> windowsProcessHandleSignaled [
 SPSAsyncProcess >> logExitSig: aString pid: aPid [
 
 	self debugOncePrinted ifFalse: [
-		Stdio stdout nextPutAll: 'PROC pid=', aPid printString, ' ', aString; lf; flush.
+		Stdio stderr nextPutAll: 'PROC pid=', aPid printString, ' ', aString; lf; flush.
 		debugOncePrinted := true ]
 ]
 
@@ -362,7 +363,7 @@ SPSAsyncProcess >> debugOncePrinted [
 SPSAsyncProcess >> debugPrintOnce: aString [
 
 	self debugOncePrinted ifFalse: [
-		Stdio stdout nextPutAll: aString; lf; flush.
+		Stdio stderr nextPutAll: aString; lf; flush.
 		debugOncePrinted := true ]
 ]
 
@@ -381,6 +382,7 @@ SPSAsyncProcess >> run [
 { #category : #'private - running' }
 SPSAsyncProcess >> runInWorker [
 
+	Stdio stderr nextPutAll: 'PROC runInWorker pid=', process pid printString; lf; flush.
 	self drainOutputUntilEof.
 	self cleanupAndComplete
 ]
