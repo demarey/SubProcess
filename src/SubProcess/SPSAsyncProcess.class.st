@@ -38,6 +38,7 @@ Class {
 		'kernel32Library',
 		'winWaitHandle',
 		'winLastR',
+		'winDbgDone',
 		'wasTerminated',
 		'cleanupLock',
 		'worker',
@@ -302,8 +303,16 @@ SPSAsyncProcess >> processExited [
 	 child after #drainOutputUntilEof iterated the main context."
 
 	^ OSPlatform current isWindows
-		ifTrue: [ self windowsProcessHandleSignaled ]
-		ifFalse: [ self processIsReaped ]
+		ifTrue: [
+			winDbgDone ifNil: [
+				winDbgDone := true.
+				Stdio stderr nextPutAll: 'PROC processExited isWin=true pid=', process pid printString; lf; flush ].
+			^ self windowsProcessHandleSignaled ]
+		ifFalse: [
+			winDbgDone ifNil: [
+				winDbgDone := true.
+				Stdio stderr nextPutAll: 'PROC processExited isWin=false pid=', process pid printString; lf; flush ].
+			^ self processIsReaped ]
 ]
 
 { #category : #'private - testing' }
