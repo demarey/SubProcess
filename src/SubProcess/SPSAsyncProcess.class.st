@@ -37,6 +37,7 @@ Class {
 		'errPollable',
 		'kernel32Library',
 		'winWaitHandle',
+		'winLastR',
 		'wasTerminated',
 		'cleanupLock',
 		'worker',
@@ -332,12 +333,18 @@ SPSAsyncProcess >> windowsProcessHandleSignaled [
 	 while the process runs and WAIT_OBJECT_0 (0) once it has exited. A nil handle means the
 	 process is already gone."
 
-	| pid |
+	| pid r |
 	pid := process pid.
 	(pid isNil or: [ pid = 0 ]) ifTrue: [ ^ false ].
-	winWaitHandle ifNil: [ winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid ].
+	winWaitHandle ifNil: [
+		winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid.
+		Stdio stderr nextPutAll: 'PROC open pid=', pid printString, ' h=', winWaitHandle printString, ' err=', (self kernel32Library getLastError) printString; lf; flush ].
 	winWaitHandle isNil ifTrue: [ ^ true ].
-	^ (self kernel32Library waitForSingleObject: winWaitHandle) = 0
+	r := self kernel32Library waitForSingleObject: winWaitHandle.
+	r ~= winLastR ifTrue: [
+		winLastR := r.
+		Stdio stderr nextPutAll: 'PROC wait pid=', pid printString, ' r=', r printString, ' err=', (self kernel32Library getLastError) printString; lf; flush ].
+	^ r = 0
 ]
 
 { #category : #'api - running' }

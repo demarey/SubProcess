@@ -17,6 +17,12 @@ SPSKernel32Library >> closeHandle: aHandle [
 ]
 
 { #category : #'private - primitives' }
+SPSKernel32Library >> getLastError [
+
+	^ self ffiCall: #(long GetLastError (void))
+]
+
+{ #category : #'private - primitives' }
 SPSKernel32Library >> openProcess: desiredAccess processId: aPid [
 
 	"Open an existing process object. Answers NULL (nil) if the process cannot be opened,
