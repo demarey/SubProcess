@@ -36,6 +36,7 @@ Class {
 		'outPollable',
 		'errPollable',
 		'kernel32Library',
+		'winWaitHandle',
 		'wasTerminated',
 		'cleanupLock',
 		'worker',
@@ -67,6 +68,7 @@ SPSAsyncProcess >> cleanupAndComplete [
 			ifFalse: [ exitCode := [ process exitStatus ] on: Error do: [ nil ] ].
 		[ process release ] on: Error do: [  ].
 		process := nil.
+		self releaseWindowsHandle.
 		self forgetStreams.
 		isComplete := true.
 		completionSemaphore signal ].
@@ -309,17 +311,33 @@ SPSAsyncProcess >> processIsReaped [
 	^ process notNil and: [ process pid = 0 ]
 ]
 
+{ #category : #'private - accessing' }
+SPSAsyncProcess >> releaseWindowsHandle [
+
+	winWaitHandle ifNotNil: [
+		[ self kernel32Library closeHandle: winWaitHandle ] on: Error do: [  ].
+		winWaitHandle := nil ]
+]
+
 { #category : #'private - testing' }
 SPSAsyncProcess >> windowsProcessHandleSignaled [
 
 	"Ask the OS (non-blocking) whether the child process has terminated. The GSubprocess
-	 identifier on Windows is the process handle."
+	 identifier on Windows may be interpreted either as an already-waitable process handle or as
+	 a plain process id, so handle both: a zero-timeout WaitForSingleObject either reports
+	 WAIT_OBJECT_0 (gone / 0), WAIT_TIMEOUT (running / 258), or fails (invalid handle, meaning the
+	 value is a pid), in which case we OpenProcess it and wait on the resulting handle."
 
-	| handle |
-	handle := process pid.
-	^ (handle isNil or: [ handle = 0 ])
-		ifTrue: [ false ]
-		ifFalse: [ (self kernel32Library waitForSingleObject: (ExternalAddress fromAddress: handle)) = 0 ]
+	| pid r |
+	pid := process pid.
+	(pid isNil or: [ pid = 0 ]) ifTrue: [ ^ false ].
+	r := self kernel32Library waitForSingleObject: (ExternalAddress fromAddress: pid).
+	r = 0 ifTrue: [ ^ true ].
+	r = 258 ifTrue: [ ^ false ].
+	winWaitHandle ifNil: [
+		winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid ].
+	winWaitHandle isNil ifTrue: [ ^ true ].
+	^ (self kernel32Library waitForSingleObject: winWaitHandle) = 0
 ]
 
 { #category : #'api - running' }

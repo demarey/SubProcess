@@ -11,6 +11,21 @@ SPSKernel32Library >> win32LibraryName [
 ]
 
 { #category : #'private - primitives' }
+SPSKernel32Library >> closeHandle: aHandle [
+
+	^ self ffiCall: #(long CloseHandle (void *aHandle))
+]
+
+{ #category : #'private - primitives' }
+SPSKernel32Library >> openProcess: desiredAccess processId: aPid [
+
+	"Open an existing process object. Answers NULL (nil) if the process cannot be opened,
+	 typically because it no longer exists."
+
+	^ self ffiCall: #(void *OpenProcess (long desiredAccess, long 0, long aPid))
+]
+
+{ #category : #'private - primitives' }
 SPSKernel32Library >> waitForSingleObject: aHandle [
 
 	"Non-blocking wait on a Windows process/event handle: answers immediately whether the
