@@ -69,7 +69,7 @@ SPSAsyncProcess >> cleanupAndComplete [
 			ifFalse: [
 				exitCode := [ process exitStatus ]
 					on: Error
-					do: [ :err | self debugPrintOnce: 'PROC exitStatus ERROR: ', err printString. nil ] ].
+					do: [ :err | Stdio stdout nextPutAll: 'PROC exitStatus ERROR: ', err printString; lf; flush. nil ] ].
 		[ process release ] on: Error do: [  ].
 		process := nil.
 		self releaseWindowsHandle.
@@ -256,7 +256,7 @@ SPSAsyncProcess >> drainOutputUntilEof [
 				ifTrue: [ outEOF := true. errEOF := true ]
 				ifFalse: [ (Delay forMilliseconds: 2) wait ] ] ].
 	self drainRemainder.
-	[ process wait ] on: Error do: [  ].
+	[ process wait ] on: Error do: [ :err | Stdio stdout nextPutAll: 'PROC wait ERROR: ', err printString; lf; flush ].
 	self finalizeOutput
 ]
 
@@ -327,30 +327,29 @@ SPSAsyncProcess >> releaseWindowsHandle [
 SPSAsyncProcess >> windowsProcessHandleSignaled [
 
 	"Ask the OS (non-blocking) whether the child process has terminated. The GSubprocess
-	 identifier on Windows may be interpreted either as an already-waitable process handle or as
-	 a plain process id, so handle both: a zero-timeout WaitForSingleObject either reports
-	 WAIT_OBJECT_0 (gone / 0), WAIT_TIMEOUT (running / 258), or fails (invalid handle, meaning the
-	 value is a pid), in which case we OpenProcess it and wait on the resulting handle."
+	 identifier on Windows is the process id; a zero-timeout WaitForSingleObject on it directly is
+	 meaningless (PIDs are not wait handles), so OpenProcess a SYNCHRONIZE handle and wait on
+	 that, caching the handle across polls."
 
-	| pid r raw dbg |
+	| pid r handle r2 |
 	pid := process pid.
 	(pid isNil or: [ pid = 0 ]) ifTrue: [ ^ false ].
-	raw := process gGetIdentifier.
-	self debugPrintOnce: (
-		'PROC pid=', pid printString,
-		' id=', raw printString,
-		' idStr=', (raw ifNotNil: [ raw asString ]) printString).
 	r := self kernel32Library waitForSingleObject: (ExternalAddress fromAddress: pid).
-	self debugPrintOnce: 'PROC r1=', r printString.
-	r = 0 ifTrue: [ ^ true ].
+	r = 0 ifTrue: [ self logExitSig: 'r1=0' pid: pid. ^ true ].
 	r = 258 ifTrue: [ ^ false ].
-	winWaitHandle ifNil: [
-		winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid.
-		self debugPrintOnce: 'PROC h=', winWaitHandle printString ].
-	winWaitHandle isNil ifTrue: [ ^ true ].
-	dbg := self kernel32Library waitForSingleObject: winWaitHandle.
-	self debugPrintOnce: 'PROC r2=', dbg printString.
-	^ dbg = 0
+	winWaitHandle ifNil: [ winWaitHandle := self kernel32Library openProcess: 16r00100000 processId: pid ].
+	winWaitHandle isNil ifTrue: [ self logExitSig: 'open-nil' pid: pid. ^ true ].
+	r2 := self kernel32Library waitForSingleObject: winWaitHandle.
+	self logExitSig: ('r1=', r printString, ' handle=', winWaitHandle printString, ' r2=', r2 printString) pid: pid.
+	^ r2 = 0
+]
+
+{ #category : #'private - testing' }
+SPSAsyncProcess >> logExitSig: aString pid: aPid [
+
+	self debugOncePrinted ifFalse: [
+		Stdio stdout nextPutAll: 'PROC pid=', aPid printString, ' ', aString; lf; flush.
+		debugOncePrinted := true ]
 ]
 
 { #category : #'private - testing' }
