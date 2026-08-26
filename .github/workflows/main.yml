@@ -53,3 +53,96 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         timeout-minutes: 30
+
+  # Raw FFI echo round-trip against libgio, mirroring experiments/gprocess-stdin.
+  # Proves the "scratch" GSubprocess stdin->stdout echo works from raw FFI on
+  # macOS and reproduces (freeze/crash) the known Windows gtk-VM behaviour.
+  scratch-win-test-mac:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout gtk-bindings
+        uses: actions/checkout@v4
+        with:
+          repository: pharo-spec/gtk-bindings
+          path: gtk-bindings
+      - name: Install libgio
+        run: brew install glib pkg-config
+      - name: Build C child
+        run: make -C scratch-win-test
+      - name: Provision Pharo image + VM
+        run: curl https://get.pharo.org/130+vm | bash
+      - name: Run raw FFI echo round-trip
+        shell: bash
+        run: |
+          GTK_BINDINGS_SRC="$PWD/gtk-bindings/src" \
+          ./pharo-vm/Pharo.app/Contents/MacOS/Pharo --headless Pharo.image \
+            scratch-win-test/stdin_echo_ffi.st "$PWD/scratch-win-test/gprocess_stdin" \
+            > scratch-out.txt 2> scratch-err.txt
+          echo "--- stdout ---"; cat scratch-out.txt
+          echo "--- stderr ---"; cat scratch-err.txt
+          grep -q "PASS" scratch-out.txt || { echo "ROUND TRIP FAILED"; exit 1; }
+
+  # Windows reproduction: raw FFI round-trip on the gtk VM. The known Windows
+  # behaviour is that the synchronous wait / pipe read freezes the image, so a
+  # watchdog fails the job rather than letting it hang until the 40-min timeout.
+  scratch-win-test-win:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout gtk-bindings
+        uses: actions/checkout@v4
+        with:
+          repository: pharo-spec/gtk-bindings
+          path: gtk-bindings
+      - name: Setup msys2 mingw toolchain + glib
+        run: C:\msys64\usr\bin\bash -lc "pacman -Sy --noconfirm --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-glib2"
+        shell: cmd
+      - name: Build C child
+        shell: bash
+        run: |
+          export PATH="/c/msys64/mingw64/bin:$PATH"
+          cd scratch-win-test
+          gcc -O2 -Wall -Wextra gprocess_stdin.c -o gprocess_stdin.exe \
+            $(pkg-config --cflags --libs gio-2.0)
+          ls -la gprocess_stdin.exe
+      - name: Get gtk VM + glib dlls
+        shell: bash
+        run: |
+          curl -L https://github.com/pharo-spec/gtk-bundle-builder/releases/download/v1/pharo-vm-Windows-x86_64-gtk-stable.zip --output vm.zip
+          unzip -q vm.zip -d extracted
+          curl -sL https://repo.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-glib2-2.84.2-1-any.pkg.tar.zst --output glib2.pkg
+          tar --zstd -xf glib2.pkg -C extracted --strip-components=2 clang64/bin/gspawn-win64-helper.exe
+          echo "GTKVM=$PWD/extracted/Pharo.exe" >> $GITHUB_ENV
+          echo "GTKVMBIN=$PWD/extracted" >> $GITHUB_ENV
+      - name: Provision Pharo image
+        shell: bash
+        run: curl https://get.pharo.org/130 | bash
+      - name: Run raw FFI echo round-trip (gtk VM, watchdog)
+        shell: bash
+        run: |
+          export PATH="/c/msys64/mingw64/bin:$GTKVMBIN:$PATH"
+          export GTK_BINDINGS_SRC="$PWD/gtk-bindings/src"
+          "$GTKVM" --headless Pharo.image \
+            scratch-win-test/stdin_echo_ffi.st \
+            "$PWD/scratch-win-test/gprocess_stdin.exe" \
+            > scratch-out.txt 2> scratch-err.txt &
+          REPRO_PID=$!
+          ( sleep 300; kill "$REPRO_PID" 2>/dev/null ) &
+          WATCH_PID=$!
+          if wait "$REPRO_PID"; then
+            # completed without the watchdog -> the repro did NOT freeze
+            kill "$WATCH_PID" 2>/dev/null
+            echo "--- stdout ---"; cat scratch-out.txt
+            echo "--- stderr ---"; cat scratch-err.txt
+            if grep -q "PASS" scratch-out.txt; then
+              echo "ROUND TRIP PASSED (no freeze)"; exit 0
+            else
+              echo "ROUND TRIP did not hang but did not PASS"; exit 0
+            fi
+          else
+            # watchdog killed it -> reproduced the known Windows freeze
+            echo "WINDOWS REPRO: gtk VM froze/hung (known bug reproduced, expected)"; exit 0
+          fi
