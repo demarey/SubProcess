@@ -67,8 +67,8 @@ jobs:
         with:
           repository: pharo-spec/gtk-bindings
           path: gtk-bindings
-      - name: Install libgio
-        run: brew install glib pkg-config
+      - name: Install libgio (and gtk4 for the Glib tonel load)
+        run: brew install gtk+4 pkg-config
       - name: Build C child
         run: make -C scratch-win-test
       - name: Provision Pharo image + VM
