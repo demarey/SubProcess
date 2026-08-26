@@ -10,14 +10,8 @@ Class {
 { #category : #tests }
 GSubprocessStdinTest >> skipIfRunningOnWindows [
 
-	"Windows-skipped: writing to / closing a GSubprocess stdin pipe through the
-	 gtk-bindings on Windows blocks the entire VM (g_pollable_input_stream_can_poll
-	 assertion fires; the call never returns even from a background worker). The
-	 underlying GIO semantics are nonetheless proven on Windows by the reference C
-	 experiment under experiments/gprocess-stdin, which passes there."
-
 	self isRunningOnWindows
-		ifTrue: [ self skip: 'gtk-bindings stdin pipes block the whole VM on Windows; see experiments/gprocess-stdin' ]
+		ifTrue: [ self skip: 'windows-specific behavior; validated on other platforms and by experiments/gprocess-stdin' ]
 ]
 
 { #category : #helpers }
@@ -56,6 +50,22 @@ GSubprocessStdinTest >> newSubprocessEchoingStdin [
 	^ sub
 ]
 
+{ #category : #helpers }
+GSubprocessStdinTest >> waitForExitOf: sub [
+
+	"Block until `sub` has exited. On Unix the canonical g_subprocess_wait works.
+	 On Windows it deadlocks the whole gtk Pharo VM: glib's g_subprocess_wait pumps
+	 the thread-default GMainContext from the FFI thread and never returns (traced:
+	 write and close both complete; only the wait blocks, freezing the image). So
+	 on Windows poll `pid` until glib's own worker thread reaps the child (pid
+	 becomes 0) instead -- the same strategy the real SubProcess uses to avoid
+	 g_subprocess_wait there."
+
+	self isRunningOnWindows
+		ifTrue: [ [ sub pid = 0 ] whileFalse: [ (5 milliSeconds) asDelay wait ] ]
+		ifFalse: [ sub wait ]
+]
+
 { #category : #tests }
 GSubprocessStdinTest >> testStdinNotClosedDoesNotExit [
 
@@ -78,17 +88,6 @@ GSubprocessStdinTest >> testStdinNotClosedDoesNotExit [
 	]
 ]
 
-{ #category : #helpers }
-GSubprocessStdinTest >> traceOnWindows: aString [
-
-	self isRunningOnWindows
-		ifTrue: [
-			Stdio stderr
-				nextPutAll: ('[GSubprocessStdin] ' , aString);
-				lf;
-				flush ]
-]
-
 { #category : #tests }
 GSubprocessStdinTest >> testStdinRoundTrip [
 
@@ -96,29 +95,21 @@ GSubprocessStdinTest >> testStdinRoundTrip [
 	 Mirrors the reference C experiment exactly."
 
 	| sub stdinPipe stdoutPipe out decoded expected |
-	self traceOnWindows: 'roundTrip:start'.
 	expected := 'hello stdin'.
 	sub := self newSubprocessEchoingStdin.
 	self assert: sub notNil description: 'spawn failed'.
-	self traceOnWindows: 'roundTrip:spawned'.
-	stdinPipe := sub stdinPipe.
 	[
-		self traceOnWindows: 'roundTrip:writeFlush:before'.
+		stdinPipe := sub stdinPipe.
 		stdinPipe writeFlush: expected.
-		self traceOnWindows: 'roundTrip:writeFlush:after'.
 		stdinPipe close.
-		self traceOnWindows: 'roundTrip:close:after'.
-		sub wait.
-		self traceOnWindows: 'roundTrip:wait:after'.
+		self waitForExitOf: sub.
 		self assert: sub successful description: 'child did not exit successfully'.
 		stdoutPipe := sub stdoutPipe.
 		out := ByteArray new writeStream.
 		stdoutPipe readAllInto: out.
-		self traceOnWindows: 'roundTrip:read:after'.
 		decoded := (out contents) decodeWith: 'utf8'.
 		self assert: (decoded includesSubstring: expected)
 	] ensure: [
 		[ stdinPipe close ] on: Error do: [  ].
-		sub release ].
-	self traceOnWindows: 'roundTrip:end'
+		sub release ]
 ]
