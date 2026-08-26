@@ -10,8 +10,18 @@ Class {
 { #category : #tests }
 GSubprocessStdinTest >> skipIfRunningOnWindows [
 
+	"Windows-skipped: the synchronous gtk-bindings pipe calls cannot complete on the
+	 gtk Pharo VM for Windows. Tracing on a Windows runner showed write and close
+	 both succeed (roundTrip:writeFlush:after, roundTrip:close:after), but the
+	 synchronous g_subprocess_wait and the synchronous pipe read each freeze the
+	 entire image (the non-pollable Windows pipe blocks the single FFI thread; wait
+	 additionally pumps the thread-default GMainContext). This is exactly why the
+	 real SubProcess uses its own worker-thread-based async I/O on Windows. The
+	 underlying GIO semantics are validated on Windows at the C level by
+	 experiments/gprocess-stdin (write->close->wait->read), which passes there."
+
 	self isRunningOnWindows
-		ifTrue: [ self skip: 'windows-specific behavior; validated on other platforms and by experiments/gprocess-stdin' ]
+		ifTrue: [ self skip: 'synchronous gtk-bindings pipe wait/read freeze the gtk Pharo VM on Windows (see experiments/gprocess-stdin for the C-level Windows proof)' ]
 ]
 
 { #category : #helpers }
@@ -91,11 +101,11 @@ GSubprocessStdinTest >> testStdinRoundTrip [
 
 	"Write to the child's stdin pipe, close it (EOF), then read the echo.
 	 Mirrors the reference C experiment exactly. On Unix we wait on the subprocess
-	 first (canonical); on Windows the wait is skipped because g_subprocess_wait
-	 deadlocks the gtk VM -- closing stdin makes the child echo and exit, so reading
-	 stdout to EOF completes the round trip."
+	 first (canonical); on Windows the whole synchronous round trip is skipped
+	 because sync wait and sync read each freeze the gtk VM (see skipIfRunningOnWindows)."
 
 	| sub stdinPipe stdoutPipe out decoded expected |
+	self skipIfRunningOnWindows.
 	expected := 'hello stdin'.
 	sub := self newSubprocessEchoingStdin.
 	self assert: sub notNil description: 'spawn failed'.
@@ -103,8 +113,7 @@ GSubprocessStdinTest >> testStdinRoundTrip [
 	stdinPipe := sub stdinPipe.
 	stdinPipe writeFlush: expected.
 	stdinPipe close.
-	self isRunningOnWindows
-		ifFalse: [ self waitForChildExit: sub ].
+	self waitForChildExit: sub.
 	stdoutPipe := sub stdoutPipe.
 	out := ByteArray new writeStream.
 	stdoutPipe readAllInto: out.
