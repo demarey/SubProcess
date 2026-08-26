@@ -59,6 +59,35 @@ FFILibrary subclass: #XpGioLibrary
 	classified: 'private'.
 !
 
+"FFILibrary subclass bound to libgobject-2.0. g_object_unref is exported there
+ (not by libgio); Windows FFI does not look up symbols in a library's load-time
+ dependencies the way macOS/linux dyld does, so the cleanup call must be bound
+ to the DLL that actually exports the symbol."
+FFILibrary subclass: #XpGobjectLibrary
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Xp-Scratch'.
+!
+
+(Smalltalk classNamed: 'XpGobjectLibrary') compile:
+	'macLibraryName
+		^ FFIMacLibraryFinder findAnyLibrary: #(''libgobject-2.0.dylib'' ''libgobject-2.0.0.dylib'')'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpGobjectLibrary') compile:
+	'unix64LibraryName
+		^ FFIUnix64LibraryFinder findAnyLibrary: #(''libgobject-2.0.so'' ''libgobject-2.0.so.0'')'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpGobjectLibrary') compile:
+	'win32LibraryName
+		^ FFIWindowsLibraryFinder findAnyLibrary: #(''libgobject-2.0-0.dll'')'
+	classified: 'private'.
+!
+
 Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'Xp-Scratch'.
 !
 
@@ -144,7 +173,7 @@ Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' po
 
 (Smalltalk classNamed: 'XpStdinFFI') compile:
 	'gObjectUnref: handle
-		self ffiCall: #(void g_object_unref (void *handle)) module: XpGioLibrary'
+		self ffiCall: #(void g_object_unref (void *handle)) module: XpGobjectLibrary'
 	classified: 'private'.
 !
 
