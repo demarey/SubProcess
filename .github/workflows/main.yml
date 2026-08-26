@@ -62,13 +62,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout gtk-bindings
-        uses: actions/checkout@v4
-        with:
-          repository: pharo-spec/gtk-bindings
-          path: gtk-bindings
-      - name: Install libgio (and gtk4 for the Glib tonel load)
-        run: brew install gtk+4 pkg-config
+      - name: Install libgio
+        run: brew install glib pkg-config
       - name: Build C child
         run: make -C scratch-win-test
       - name: Provision Pharo image + VM
@@ -77,8 +72,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          GTK_BINDINGS_SRC="$PWD/gtk-bindings/src" \
-            ./pharo-vm/Pharo.app/Contents/MacOS/Pharo --headless Pharo.image \
+          ./pharo-vm/Pharo.app/Contents/MacOS/Pharo --headless Pharo.image \
             scratch-win-test/stdin_echo_ffi.st "$PWD/scratch-win-test/gprocess_stdin" \
             > scratch-out.txt 2> scratch-err.txt
           PHARO_EXIT=$?
@@ -100,11 +94,6 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout gtk-bindings
-        uses: actions/checkout@v4
-        with:
-          repository: pharo-spec/gtk-bindings
-          path: gtk-bindings
       - name: Setup msys2 mingw toolchain + glib
         run: C:\msys64\usr\bin\bash -lc "pacman -Sy --noconfirm --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-glib2"
         shell: cmd
@@ -132,7 +121,6 @@ jobs:
         shell: bash
         run: |
           export PATH="/c/msys64/mingw64/bin:$GTKVMBIN:$PATH"
-          export GTK_BINDINGS_SRC="$PWD/gtk-bindings/src"
           "$GTKVM" --headless Pharo.image \
             scratch-win-test/stdin_echo_ffi.st \
             "$PWD/scratch-win-test/gprocess_stdin.exe" \

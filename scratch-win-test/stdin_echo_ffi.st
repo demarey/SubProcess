@@ -12,42 +12,59 @@ child echoed exactly the payload back, mirroring the C parent in
 gprocess_stdin.c step by step.
 
 Only raw libgio FFI calls (g_subprocess_*, g_output_stream_*, g_input_stream_*,
-g_object_unref) are used. No gtk-bindings wrapper classes (GSubprocess /
-GOutputStream / GInputStream) are referenced. We rely on the loaded Glib
-baseline only for the library handle (GLibIOLibrary) and the GErrorHolder /
-GError FFI plumbing.
+g_object_unref) are used. The file is fully self-contained: it defines its own
+FFILibrary subclass bound to libgio (XpGioLibrary) and uses only the atomic C
+types that plain Pharo FFI understands (void*, int, size_t, long), so it does
+NOT need the Gtk/GObject pool variables, GErrorHolder/GError helper classes or
+the gtk-bindings baseline at all.
+
+Default Pharo (non-threaded) FFI is used, so there is no dependency on the
+Gtk threaded-FII engine either.
 
 Prints:
-    PASS echo="<payload>" exit=<status>
+    PASS echo=<payload> exit=<status>
 or
-    FAIL <reason> echo="<bytes>" exit=<status> successful=<0|1>
+    FAIL <reason> echo=<bytes> exit=<status> successful=<0|1>
 then a trailing marker line and quits the VM.
 
 This file is a Pharo fileIn: code chunks are delimited by a "!" on its own
 line, and each chunk is parsed/evaluated in order once the previous one has
-run. That lets the class be created before its methods are compiled.
+run. That lets the library/class be created before its methods are compiled.
 ================================================================================
 "
 
-"Load the Glib baseline so libgio resolves (GLibIOLibrary) and the GError/FFI
- helper classes exist. No wrapper-class logic is used below. The gtk-bindings
- tonel source path is taken from $GTK_BINDINGS_SRC if set, else a default."
-| gtkSrc |
-gtkSrc := OSEnvironment current at: 'GTK_BINDINGS_SRC'
-	ifAbsent: [ '/Users/demarey/dev/rmod/gtk-bindings/src' ].
-Metacello new
-	baseline: 'Glib';
-	repository: 'tonel://' , gtkSrc;
-	onConflict: [ :exx | exx useIncoming ];
-	load: 'GIO-standalone'.
+"FFILibrary subclass bound to libgio-2.0 (kept dependency-free)."
+FFILibrary subclass: #XpGioLibrary
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Xp-Scratch'.
 !
 
-Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' poolDictionaries: 'GObjectTypes' category: 'Xp-Scratch'.
+(Smalltalk classNamed: 'XpGioLibrary') compile:
+	'macLibraryName
+		^ FFIMacLibraryFinder findAnyLibrary: #(''libgio-2.0.dylib'' ''libgio-2.0.0.dylib'')'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpGioLibrary') compile:
+	'unix64LibraryName
+		^ FFIUnix64LibraryFinder findAnyLibrary: #(''libgio-2.0.so'' ''libgio-2.0.so.0'')'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpGioLibrary') compile:
+	'win32LibraryName
+		^ FFIWindowsLibraryFinder findAnyLibrary: #(''libgio-2.0-0.dll'' ''libgio-2.0.dll'')'
+	classified: 'private'.
+!
+
+Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' poolDictionaries: '' category: 'Xp-Scratch'.
 !
 
 (Smalltalk classNamed: 'XpStdinFFI') compile:
 	'gSubprocessLauncherNew: flags
-		^ self ffiCall: #(void * g_subprocess_launcher_new (gint flags)) module: GLibIOLibrary'
+		^ self ffiCall: #(void * g_subprocess_launcher_new (int flags)) module: XpGioLibrary'
 	classified: 'private'.
 !
 
@@ -55,89 +72,88 @@ Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' po
 	'gSubprocessLauncherSpawnv: launcher argv: argv error: error
 		^ self ffiCall: #(void * g_subprocess_launcher_spawnv (
 			void *launcher,
-			"const gchar * const *"void *argv,
-			"GError **"GErrorHolder error)) module: GLibIOLibrary'
+			void *argv,
+			void *error)) module: XpGioLibrary'
 	classified: 'private'.
 !
 
 (Smalltalk classNamed: 'XpStdinFFI') compile:
 	'gSubprocessGetStdinPipe: sub
-		^ self ffiCall: #(void * g_subprocess_get_stdin_pipe (void *sub)) module: GLibIOLibrary'
+		^ self ffiCall: #(void * g_subprocess_get_stdin_pipe (void *sub)) module: XpGioLibrary'
 	classified: 'private'.
 !
 
 (Smalltalk classNamed: 'XpStdinFFI') compile:
 	'gSubprocessGetStdoutPipe: sub
-		^ self ffiCall: #(void * g_subprocess_get_stdout_pipe (void *sub)) module: GLibIOLibrary'
-	classified: 'private'.
-!
-
-(Smalltalk classNamed: 'XpStdinFFI') compile:
-	'gOutputStreamWriteAll: stream buffer: buffer count: count bytesWritten: bytesWritten cancellable: cancellable error: error
-		^ self ffiCall: #(gboolean g_output_stream_write_all (
-			void *stream,
-			"const gchar *"void *buffer,
-			gsize count,
-			"gsize *"void *bytesWritten,
-			"GCancellable *"gpointer cancellable,
-			"GError **"GErrorHolder error)) module: GLibIOLibrary'
-	classified: 'private'.
-!
-
-(Smalltalk classNamed: 'XpStdinFFI') compile:
-	'gOutputStreamClose: stream cancellable: cancellable error: error
-		^ self ffiCall: #(gboolean g_output_stream_close (
-			void *stream,
-			"GCancellable *"gpointer cancellable,
-			"GError **"GErrorHolder error)) module: GLibIOLibrary'
-	classified: 'private'.
-!
-
-(Smalltalk classNamed: 'XpStdinFFI') compile:
-	'gSubprocessWaitCheck: sub cancellable: cancellable error: error
-		^ self ffiCall: #(gboolean g_subprocess_wait_check (
-			void *sub,
-			"GCancellable *"gpointer cancellable,
-			"GError **"GErrorHolder error)) module: GLibIOLibrary'
-	classified: 'private'.
-!
-
-(Smalltalk classNamed: 'XpStdinFFI') compile:
-	'gInputStreamRead: stream buffer: buffer count: count cancellable: cancellable error: error
-		^ self ffiCall: #(gssize g_input_stream_read (
-			void *stream,
-			gchar *buffer,
-			gsize count,
-			"GCancellable *"gpointer cancellable,
-			"GError **"GErrorHolder error)) module: GLibIOLibrary'
+		^ self ffiCall: #(void * g_subprocess_get_stdout_pipe (void *sub)) module: XpGioLibrary'
 	classified: 'private'.
 !
 
 (Smalltalk classNamed: 'XpStdinFFI') compile:
 	'gSubprocessGetSuccessful: sub
-		^ self ffiCall: #(gboolean g_subprocess_get_successful (void *sub)) module: GLibIOLibrary'
+		^ self ffiCall: #(int g_subprocess_get_successful (void *sub)) module: XpGioLibrary'
 	classified: 'private'.
 !
 
 (Smalltalk classNamed: 'XpStdinFFI') compile:
 	'gSubprocessGetExitStatus: sub
-		^ self ffiCall: #(gint g_subprocess_get_exit_status (void *sub)) module: GLibIOLibrary'
+		^ self ffiCall: #(int g_subprocess_get_exit_status (void *sub)) module: XpGioLibrary'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpStdinFFI') compile:
+	'gSubprocessWaitCheck: sub cancellable: cancellable error: error
+		^ self ffiCall: #(int g_subprocess_wait_check (
+			void *sub,
+			void *cancellable,
+			void *error)) module: XpGioLibrary'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpStdinFFI') compile:
+	'gOutputStreamWriteAll: stream buffer: buffer count: count bytesWritten: bytesWritten cancellable: cancellable error: error
+		^ self ffiCall: #(int g_output_stream_write_all (
+			void *stream,
+			void *buffer,
+			size_t count,
+			void *bytesWritten,
+			void *cancellable,
+			void *error)) module: XpGioLibrary'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpStdinFFI') compile:
+	'gOutputStreamClose: stream cancellable: cancellable error: error
+		^ self ffiCall: #(int g_output_stream_close (
+			void *stream,
+			void *cancellable,
+			void *error)) module: XpGioLibrary'
+	classified: 'private'.
+!
+
+(Smalltalk classNamed: 'XpStdinFFI') compile:
+	'gInputStreamRead: stream buffer: buffer count: count cancellable: cancellable error: error
+		^ self ffiCall: #(long g_input_stream_read (
+			void *stream,
+			void *buffer,
+			size_t count,
+			void *cancellable,
+			void *error)) module: XpGioLibrary'
 	classified: 'private'.
 !
 
 (Smalltalk classNamed: 'XpStdinFFI') compile:
 	'gObjectUnref: handle
-		self ffiCall: #(void g_object_unref (void *handle)) module: GLibIOLibrary'
+		self ffiCall: #(void g_object_unref (void *handle)) module: XpGioLibrary'
 	classified: 'private'.
 !
 
+"Storage for a GError* written by libgio when a call fails. We never dereference
+ it (the example expects success), but a writable buffer keeps failing calls
+ from crashing the VM."
 (Smalltalk classNamed: 'XpStdinFFI') compile:
-	'errorMessage: holder
-		| handle err |
-		handle := holder value.
-		(handle isNil or: [ handle isNull ]) ifTrue: [ ^ ''unknown'' ].
-		err := GError fromHandle: handle.
-		^ err messageString'
+	'newErrorBuffer
+		^ ExternalAddress allocate: 8'
 	classified: 'private'.
 !
 
@@ -146,10 +162,10 @@ Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' po
 		| count bytesWritten error ok |
 		count := aByteArray size.
 		bytesWritten := FFISizeT newBuffer.
-		error := GErrorHolder new.
+		error := self newErrorBuffer.
 		ok := self gOutputStreamWriteAll: stream buffer: aByteArray count: count
 				bytesWritten: bytesWritten cancellable: ExternalAddress null error: error.
-		ok ifFalse: [ self error: ''write failed: '' , (self errorMessage: error) ]'
+		ok ifFalse: [ self error: ''write failed'' ]'
 	classified: 'private'.
 !
 
@@ -157,7 +173,7 @@ Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' po
 	'readAll: stream
 		| out error buf n |
 		out := WriteStream on: ByteArray new.
-		error := GErrorHolder new.
+		error := self newErrorBuffer.
 		buf := ByteArray new: 4096.
 		[ n := self gInputStreamRead: stream buffer: buf count: 4096
 				cancellable: ExternalAddress null error: error.
@@ -180,16 +196,16 @@ Object subclass: #XpStdinFFI instanceVariableNames: '' classVariableNames: '' po
 		successful := false. exitCode := -1. echoed := ByteArray new.
 		reason := ''ok''.
 		[
-			sub := self gSubprocessLauncherSpawnv: launcher argv: argv error: GErrorHolder new.
+			sub := self gSubprocessLauncherSpawnv: launcher argv: argv error: self newErrorBuffer.
 			(sub isNil or: [ sub isNull ])
 				ifTrue: [ reason := ''spawn failed'' ]
 				ifFalse: [
 					stdinPipe := self gSubprocessGetStdinPipe: sub.
 					[ self writeAll: stdinPipe bytes: payload ]
 						on: Error do: [ :e | reason := ''write: '' , e messageText ].
-					self gOutputStreamClose: stdinPipe cancellable: ExternalAddress null error: GErrorHolder new.
-					self gSubprocessWaitCheck: sub cancellable: ExternalAddress null error: GErrorHolder new.
-					successful := self gSubprocessGetSuccessful: sub.
+					self gOutputStreamClose: stdinPipe cancellable: ExternalAddress null error: self newErrorBuffer.
+					self gSubprocessWaitCheck: sub cancellable: ExternalAddress null error: self newErrorBuffer.
+					successful := (self gSubprocessGetSuccessful: sub) = 1.
 					exitCode := self gSubprocessGetExitStatus: sub.
 					stdoutPipe := self gSubprocessGetStdoutPipe: sub.
 					echoed := self readAll: stdoutPipe.
